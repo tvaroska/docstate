@@ -8,15 +8,17 @@ The current development focus for DocState is implementing the state machine cor
 2. **SQLAlchemy Integration**: Implementing the ORM models and database persistence layer
 3. **Alembic Migration Support**: Setting up database migration capabilities for schema evolution
 4. **Python 3.12+ Features**: Leveraging the latest Python language features for improved type safety and performance
+5. **Build System Migration**: Converting from Poetry to uv for faster dependency management
 
 ## Recent Changes
 
-We're focusing on the state machine implementation and SQLAlchemy integration. Key recent developments include:
+We're focusing on the state machine implementation, SQLAlchemy integration and build system improvements. Key recent developments include:
 
 1. **Technology Update**: Upgraded minimum Python version to 3.12+ to leverage latest language features
 2. **ORM Selection**: Selected SQLAlchemy as the ORM with Alembic for database migrations
 3. **State Machine Architecture**: Refined the state machine design for robust document processing
 4. **Database Schema Design**: Designed SQLAlchemy models and table relationships
+5. **Build System**: Converted from Poetry to uv for faster dependency management and improved developer experience
 
 ## Next Steps
 
@@ -45,6 +47,11 @@ The immediate next steps for the state machine implementation are:
    - Implement recovery paths for different error types
    - Create tools for manual intervention in error states
    - Build monitoring for stuck documents
+
+5. **Build System Improvements**:
+   - Fine-tune uv configuration for optimal performance
+   - Set up CI/CD pipeline with uv for faster builds
+   - Create uv-based development workflows
 
 ## Active Decisions
 
@@ -122,6 +129,16 @@ We're leveraging Python 3.12+ features for the state machine:
 - Self type for better method typing
 - New typing features for more precise static analysis
 
+### Package Management
+
+We've switched from Poetry to uv for dependency management:
+
+**Selected Approach**: uv-based dependency management
+- Faster dependency resolution with uv
+- pyproject.toml for package configuration
+- requirements-dev.txt for development dependencies
+- install.sh script for easy setup
+
 ## Current Challenges
 
 Key challenges specific to the state machine implementation:
@@ -134,3 +151,4 @@ Key challenges specific to the state machine implementation:
 6. **State Machine Visualization**: Creating clear visualizations of complex state machines
 7. **Performance Optimization**: Optimizing SQLAlchemy queries for state transitions
 8. **Python 3.12 Compatibility**: Ensuring libraries work with Python 3.12+ features
+9. **Dependency Management**: Optimizing uv configuration for development workflows

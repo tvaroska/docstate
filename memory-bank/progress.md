@@ -2,19 +2,20 @@
 
 ## Current Status
 
-**Project Phase**: State Machine Implementation with SQLAlchemy Integration
+**Project Phase**: State Machine Implementation with SQLAlchemy Integration and Build System Modernization
 
-DocState is currently in the implementation phase with a focus on building the core state machine and integrating with SQLAlchemy ORM. We have established the technology stack (Python 3.12+, SQLAlchemy with Alembic) and are now implementing the core functionality.
+DocState is currently in the implementation phase with a focus on building the core state machine, integrating with SQLAlchemy ORM, and upgrading the build system to uv. We have established the technology stack (Python 3.12+, SQLAlchemy with Alembic, uv) and are now implementing the core functionality.
 
 ## What Works
 
-Implementation has begun with focus on the state machine core:
+Implementation has begun with focus on the state machine core and build system improvements:
 
 1. **Technology Stack**: Python 3.12+ with SQLAlchemy ORM and Alembic migrations
 2. **Core Architecture**: The state machine architecture has been implemented
 3. **SQLAlchemy Models**: Initial database models have been defined
 4. **State Transition Registry**: Core mechanism for registering and validating transitions
 5. **Basic Transaction Management**: Framework for atomic state transitions
+6. **Build System**: Converted from Poetry to uv with pyproject.toml configuration
 
 ## What's Left to Build
 
@@ -61,6 +62,14 @@ While the core state machine is underway, several components still need to be bu
 - [ ] Self type utilization
 - [ ] Improved typing for transition functions
 
+### 7. Build System Modernization
+- [x] Convert from Poetry to uv
+- [x] Create pyproject.toml configuration
+- [x] Setup install.sh script
+- [x] Create requirements-dev.txt
+- [ ] CI/CD integration with uv
+- [ ] Optimize uv configuration for development workflow
+
 ## Release Roadmap
 
 ### v0.1.0 (Alpha)
@@ -69,6 +78,7 @@ While the core state machine is underway, several components still need to be bu
 - Transaction management for state changes
 - Initial Alembic migration support
 - Python 3.12 compatibility
+- UV-based build system
 
 ### v0.2.0 (Beta)
 - Complete error handling and recovery system
@@ -90,6 +100,7 @@ While the core state machine is underway, several components still need to be bu
 - Mature Alembic migration support
 - Comprehensive error handling and recovery
 - Full Python 3.12+ feature utilization
+- Optimized uv-based build and dependency management
 
 ## Known Issues
 
@@ -120,7 +131,12 @@ Several implementation challenges have been encountered:
    - Build manual intervention APIs
    - Create monitoring tools
 
-4. **Alpha Release** - ETA: Q3 2025
+4. **Build System Finalization** - ETA: Early Q2 2025
+   - Optimize uv configuration
+   - Integrate with CI/CD pipeline
+   - Create development workflow documentation
+
+5. **Alpha Release** - ETA: Q3 2025
    - Package for distribution
    - Complete core documentation
    - Release first working version

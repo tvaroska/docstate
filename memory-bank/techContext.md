@@ -38,7 +38,7 @@ DocState uses SQLAlchemy as its ORM with Alembic for database migrations:
 
 ### Tooling
 
-- **Poetry**: Dependency management and packaging
+- **uv**: Fast dependency management and packaging (replacing Poetry)
 - **pytest**: Testing framework
 - **mypy**: Static type checking
 - **black**: Code formatting
