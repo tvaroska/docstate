@@ -71,6 +71,54 @@ class Document(Base):
         self.data = data or {}
         self.uri = uri
     
+    def get_history(self, limit: int = 100) -> list[TransitionHistory]:
+        """
+        Get the transition history for this document.
+        
+        This method should be used with a Document instance that is attached to a 
+        DocState controller, as it relies on the controller's implementation.
+        
+        Args:
+            limit: Maximum number of history records to return.
+            
+        Returns:
+            A list of TransitionHistory records for the document.
+        """
+        # This will be replaced at runtime by DocState
+        return []
+    
+    def get_state_history(self, limit: int = 100) -> list[str]:
+        """
+        Get the sequence of states that this document has been in.
+        
+        This method should be used with a Document instance that is attached to a
+        DocState controller, as it relies on the controller's implementation.
+        
+        Args:
+            limit: Maximum number of states to return.
+            
+        Returns:
+            A list of state names, from most recent to earliest.
+        """
+        # This will be replaced at runtime by DocState
+        return [self.state]
+    
+    def get_transition_stats(self, include_errors: bool = True) -> dict:
+        """
+        Get statistics about transitions for this document.
+        
+        This method should be used with a Document instance that is attached to a
+        DocState controller, as it relies on the controller's implementation.
+        
+        Args:
+            include_errors: Whether to include error transitions in the statistics.
+            
+        Returns:
+            A dictionary mapping transition names to statistics dictionaries.
+        """
+        # This will be replaced at runtime by DocState
+        return {}
+    
     def get_available_transitions(self) -> list[str]:
         """
         Get the list of available transitions from the current state.
@@ -83,13 +131,17 @@ class Document(Base):
         """
         return []
     
-    def next_step(self) -> Document:
+    def next_step(self, transition_name: Optional[str] = None) -> Document:
         """
         Execute the next available transition for this document.
         
         This is a placeholder method that would be implemented by the DocState controller
         which handles the actual transition execution.
         
+        Args:
+            transition_name: Optional name of the transition to execute.
+                If not provided, the first available transition will be used.
+                
         Returns:
             The updated document after the transition.
         """

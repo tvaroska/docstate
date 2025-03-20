@@ -30,10 +30,10 @@ While the core state machine is underway, several components still need to be bu
 
 ### 2. SQLAlchemy Integration
 - [x] Basic SQLAlchemy models
-- [ ] Complete transaction management
+- [x] Complete transaction management
 - [ ] Alembic migration scripts
 - [ ] Query optimization for state filtering
-- [ ] State history tracking
+- [x] State history tracking
 
 ### 3. Error Handling & Recovery
 - [x] Error state definition framework
