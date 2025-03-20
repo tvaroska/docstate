@@ -10,7 +10,7 @@ from docstate import Document, DocState, START, END
 
 # Initialize DocState with database connection
 # Using SQLite for this example
-docs = DocState("sqlite:///example.db", create_tables=True)
+docs = DocState("sqlite://", create_tables=True)
 
 
 # Define state transitions
@@ -27,8 +27,8 @@ def download(document: Document) -> Document:
         response = requests.get(document.uri)
         response.raise_for_status()  # Raise exception for HTTP errors
         document.content = response.text
-        document.metadata["content_type"] = response.headers.get("Content-Type")
-        document.metadata["status_code"] = response.status_code
+        document.data["content_type"] = response.headers.get("Content-Type")
+        document.data["status_code"] = response.status_code
         return document
     except requests.RequestException as e:
         print(f"Download error: {e}")
@@ -45,14 +45,14 @@ def process(document: Document) -> Document:
     
     # Simple processing: count words and characters
     words = document.content.split()
-    document.metadata["word_count"] = len(words)
-    document.metadata["char_count"] = len(document.content)
+    document.data["word_count"] = len(words)
+    document.data["char_count"] = len(document.content)
     
     # Extract title (very simple approach)
     if "<title>" in document.content and "</title>" in document.content:
         start = document.content.find("<title>") + len("<title>")
         end = document.content.find("</title>")
-        document.metadata["title"] = document.content[start:end].strip()
+        document.data["title"] = document.content[start:end].strip()
     
     return document
 
@@ -68,7 +68,7 @@ def summarize(document: Document) -> Document:
         text = document.content.replace("<", " <").replace(">", "> ")
         words = text.split()
         summary = " ".join(words[:30])  # First 30 words
-        document.metadata["summary"] = summary
+        document.data["summary"] = summary
     
     return document
 
@@ -89,20 +89,20 @@ def main():
         print("\nExecuting download transition...")
         doc = docs.execute_transition(doc, "download")
         print(f"New state: {doc.state}")
-        print(f"Content type: {doc.metadata.get('content_type')}")
+        print(f"Content type: {doc.data.get('content_type')}")
         
         # Process step
         print("\nExecuting process transition...")
         doc = docs.execute_transition(doc, "process")
         print(f"New state: {doc.state}")
-        print(f"Word count: {doc.metadata.get('word_count')}")
-        print(f"Title: {doc.metadata.get('title')}")
+        print(f"Word count: {doc.data.get('word_count')}")
+        print(f"Title: {doc.data.get('title')}")
         
         # Summarize step
         print("\nExecuting summarize transition...")
         doc = docs.execute_transition(doc, "summarize")
         print(f"Final state: {doc.state}")
-        print(f"Summary: {doc.metadata.get('summary')}")
+        print(f"Summary: {doc.data.get('summary')}")
     
     except ValueError as e:
         print(f"Error in pipeline: {e}")

@@ -88,7 +88,7 @@ class DocState:
         self,
         *,
         content: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
         uri: Optional[str] = None,
         initial_state: str = START,
     ) -> Document:
@@ -97,7 +97,7 @@ class DocState:
         
         Args:
             content: The document's content.
-            metadata: Document metadata as a dictionary.
+            data: Document data as a dictionary.
             uri: URI reference for the document.
             initial_state: The initial state of the document. Defaults to START.
             
@@ -107,7 +107,7 @@ class DocState:
         document = Document(
             state=initial_state,
             content=content,
-            metadata=metadata,
+            data=data,
             uri=uri,
         )
         
@@ -162,7 +162,7 @@ class DocState:
                 db_document.state = new_state
             
             db_document.content = document.content
-            db_document.metadata = document.metadata
+            db_document.data = document.data
             db_document.uri = document.uri
             db_document.version += 1
             
@@ -326,7 +326,7 @@ class DocState:
         self,
         *,
         content: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
         uri: Optional[str] = None,
         initial_state: str = START,
     ) -> Document:
@@ -337,7 +337,7 @@ class DocState:
         document_id: Optional[uuid.UUID] = None,
         *,
         content: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
         uri: Optional[str] = None,
         initial_state: str = START,
     ) -> Document:
@@ -351,7 +351,7 @@ class DocState:
         Args:
             document_id: The UUID of an existing document to retrieve.
             content: The content for a new document.
-            metadata: Metadata for a new document.
+            data: Data for a new document.
             uri: URI for a new document.
             initial_state: Initial state for a new document.
             
@@ -363,7 +363,7 @@ class DocState:
         
         return self.create_document(
             content=content,
-            metadata=metadata,
+            data=data,
             uri=uri,
             initial_state=initial_state,
         )

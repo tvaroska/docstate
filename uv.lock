@@ -341,6 +341,11 @@ http = [
     { name = "requests" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "requests" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "aiohttp", marker = "extra == 'http'", specifier = ">=3.0.0" },
@@ -360,6 +365,9 @@ requires-dist = [
     { name = "tenacity", specifier = ">=8.0.0" },
     { name = "transformers", marker = "extra == 'ai'", specifier = ">=4.0.0" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "requests", specifier = ">=2.32.3" }]
 
 [[package]]
 name = "docutils"

@@ -33,7 +33,7 @@ class Document(Base):
     Document entity representing a document in the system.
     
     A document moves through different states as defined by the state machine.
-    Each document has a unique ID, content, metadata, and other properties.
+    Each document has a unique ID, content, data, and other properties.
     """
     
     __tablename__ = "documents"
@@ -41,7 +41,7 @@ class Document(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     state = Column(String, nullable=False, index=True)
     content = Column(Text, nullable=True)
-    metadata = Column(JSON, nullable=False, default=dict)
+    data = Column(JSON, nullable=False, default=dict)
     uri = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
@@ -54,7 +54,7 @@ class Document(Base):
         self, 
         state: str = "START", 
         content: Optional[str] = None, 
-        metadata: Optional[Dict[str, Any]] = None,
+        data: Optional[Dict[str, Any]] = None,
         uri: Optional[str] = None,
     ):
         """
@@ -63,12 +63,12 @@ class Document(Base):
         Args:
             state: The initial state of the document. Defaults to "START".
             content: The document's content. Defaults to None.
-            metadata: Document metadata as a dictionary. Defaults to an empty dict.
+            data: Document data as a dictionary. Defaults to an empty dict.
             uri: URI reference for the document. Defaults to None.
         """
         self.state = state
         self.content = content
-        self.metadata = metadata or {}
+        self.data = data or {}
         self.uri = uri
     
     def get_available_transitions(self) -> list[str]:
