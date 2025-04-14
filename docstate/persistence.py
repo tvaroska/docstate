@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 
 from abc import ABC, abstractmethod
-from a1.core import DocumentInstance, DocumentVersion, DocumentLineage
+from docstate.core import DocumentInstance, DocumentVersion, DocumentLineage
 
 class PersistenceInterface(ABC):
     """Abstract Base Class for storing and retrieving document state."""
