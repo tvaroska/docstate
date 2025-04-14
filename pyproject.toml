@@ -61,4 +61,6 @@ dev = [
     "isort>=5.0.0",
     "flake8>=6.0.0",
     "sphinx>=6.0.0",
+    "pytest-asyncio>=0.26.0",
+    "httpx>=0.28.1",
 ]
