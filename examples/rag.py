@@ -122,19 +122,21 @@ async def main():
         state='link'
     )
 
-    docstore.add(doc)
-    doc2 = await docstore.next(doc)
-    doc3 = await docstore.next(doc2)
-    doc4 = await docstore.next(doc3)
-    doc5 = await docstore.next(doc4)
+    await docstore.finish(doc)
+    # docstore.add(doc)
+    # doc2 = await docstore.next(doc)
+    # doc3 = await docstore.next(doc2)
+    # doc4 = await docstore.next(doc3)
+    # doc5 = await docstore.next(doc4)
 
     error_doc = Document(
         url='htt://docs.pydantic.dev/latest/llms.txt',
         state='link'
     )
-    
-    docstore.add(error_doc)
-    error_doc2 = await docstore.next(error_doc)
+
+    await docstore.finish(error_doc)    
+    # docstore.add(error_doc)
+    # error_doc2 = await docstore.next(error_doc)
 
     pass
 

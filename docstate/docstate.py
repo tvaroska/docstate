@@ -308,3 +308,78 @@ class DocStore:
                 continue
 
         return all_results
+        
+    async def finish(self, docs: Union[Document, List[Document]]) -> List[Document]:
+        """
+        Process document(s) through the entire pipeline until all reach a final state.
+        A final state is defined as a state with no outgoing transitions.
+        
+        This method will:
+        1. Add document(s) to the database if they don't exist yet
+        2. Repeatedly call next() until all documents are in final states
+        3. Return all documents that are in final states
+        
+        Args:
+            docs: The Document or List[Document] to process to completion
+            
+        Returns:
+            List[Document]: A list of all documents that reached a final state
+        """
+        if not self.document_type:
+            raise ValueError("Document type not set for DocStore")
+            
+        # Convert single document to list for consistent handling
+        if not isinstance(docs, list):
+            docs_to_process = [docs]
+        else:
+            docs_to_process = docs
+            
+        # Add documents to database if they don't exist already
+        for doc in docs_to_process:
+            # Check if document exists in database
+            existing_doc = self.get(id=doc.id)
+            if not existing_doc:
+                self.add(doc)
+        
+        # Get final states from document type
+        final_states = self.document_type.final
+        final_state_names = [state.name for state in final_states]
+        
+        # Add error state to final states list (documents in error state shouldn't be processed further)
+        if self.error_state not in final_state_names:
+            final_state_names.append(self.error_state)
+        
+        # Process documents until all are in final states
+        documents_to_process = docs_to_process.copy()
+        final_documents = []
+        
+        while documents_to_process:
+            # Filter out documents that are already in final states
+            documents_to_process = [
+                doc for doc in documents_to_process 
+                if doc.state not in final_state_names
+            ]
+            
+            if not documents_to_process:
+                break
+                
+            # Process the next state for each document
+            next_documents = await self.next(documents_to_process)
+            
+            if not next_documents:
+                # If no new documents were created, we're done
+                break
+                
+            # Update documents to process with the new documents
+            documents_to_process = next_documents
+        
+        # Collect all documents in final states
+        for state_name in final_state_names:
+            docs_in_state = self.get(state=state_name)
+            if docs_in_state:
+                if isinstance(docs_in_state, list):
+                    final_documents.extend(docs_in_state)
+                else:
+                    final_documents.append(docs_in_state)
+        
+        return final_documents

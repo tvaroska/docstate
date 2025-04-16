@@ -35,7 +35,8 @@
 class Document(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     content: Optional[str] = None
-    content_type: str = Field(description="Type of content - text, uri, ...")
+    media_type: str = Field(default="text/plain", description="Media type of the content (e.g., text/plain, application/pdf)")
+    url: Optional[str] = None
     state: str
     parent_id: Optional[str] = None
     children: List[str] = Field(default_factory=list)
@@ -107,113 +108,56 @@ class DocumentType(BaseModel):
 ```
 
 ### Processing Functions
+
 ```python
 async def download_document(doc: Document) -> Document:
-    """
-    Download content from the URL in the document.
-    
-    Args:
-        doc: A Document in the 'link' state with a URL in the content field
-        
-    Returns:
-        A new Document in the 'download' state with the downloaded content
-    """
-    if doc.content_type != "uri":
-        raise ValueError(f"Expected content_type 'uri', got '{doc.content_type}'")
-    
-    try:
-        # In a real implementation, we would use proper error handling,
-        # timeouts, retries, etc.
-        async with httpx.AsyncClient() as client:
-            # Use a timeout to prevent hanging on slow requests
-            response = await client.get(doc.content, timeout=10.0)
-            response.raise_for_status()
+    """Download content of url."""
+    if not doc.url:
+        raise ValueError(f"Expected url, got '{doc.media_type}'")
+
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(doc.url)
+            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
             content = response.text
-            
-            # For this example, we'll limit content length to prevent huge documents
-            if len(content) > 10000:
-                content = content[:10000] + "...[truncated]"
-                
-    except httpx.RequestError as e:
-        # Return a document with error information
-        return Document(
-            content=f"Error downloading content: {str(e)}",
-            content_type="text",
-            state="download",
-            metadata={
-                "source_url": doc.content,
-                "error": str(e),
-                "success": False
-            }
-        )
-    
-    # Return a new document with the downloaded content
+        except httpx.RequestError as exc:
+            raise RuntimeError(f"An error occurred while requesting {exc.request.url!r}: {exc}") from exc
+        except httpx.HTTPStatusError as exc:
+            raise RuntimeError(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}: {exc.response.text}") from exc
+
     return Document(
         content=content,
-        content_type="text",
+        media_type="text/plain",  # Assuming downloaded content is text
         state="download",
-        metadata={
-            "source_url": doc.content,
-            "content_length": len(content),
-            "success": True
-        }
+        metadata={"source_url": doc.content}
     )
 
 async def chunk_document(doc: Document) -> List[Document]:
-    """
-    Split a document into smaller chunks.
+    """Split document into multiple chunks."""
+    if doc.media_type != "text/plain":
+        raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
     
-    Args:
-        doc: A Document in the 'download' state with text content
-        
-    Returns:
-        A list of new Documents in the 'chunk' state, each containing a chunk of the original content
-    """
-    if doc.content_type != "text":
-        raise ValueError(f"Expected content_type 'text', got '{doc.content_type}'")
-    
-    # Check if document has an error
-    if doc.metadata.get("success") is False:
-        return [Document(
-            content=doc.content,
-            content_type="text",
-            state="chunk",
-            metadata={
-                **doc.metadata,
-                "chunk_index": 0,
-                "total_chunks": 1
-            }
-        )]
-    
-    # Simple paragraph-based chunking strategy
-    paragraphs = [p for p in doc.content.split("\n\n") if p.strip()]
-    
-    # Ensure paragraphs aren't too long by splitting further if needed
+    # Simple chunking strategy - split by newlines and ensure chunks aren't too long
+    lines = doc.content.split("\n")
     chunks = []
-    max_chunk_length = 1000  # Character limit for chunks
+    current_chunk = []
+    current_length = 0
+    max_chunk_length = 100  # Simple character limit
     
-    for paragraph in paragraphs:
-        # If paragraph is short enough, add it directly
-        if len(paragraph) <= max_chunk_length:
-            chunks.append(paragraph)
-        else:
-            # Otherwise, split into sentences and group them
-            sentences = [s.strip() + "." for s in paragraph.split(".") if s.strip()]
+    for line in lines:
+        # If adding this line would exceed max length, finalize current chunk
+        if current_length + len(line) > max_chunk_length and current_chunk:
+            chunks.append("\n".join(current_chunk))
             current_chunk = []
             current_length = 0
-            
-            for sentence in sentences:
-                if current_length + len(sentence) > max_chunk_length and current_chunk:
-                    chunks.append(" ".join(current_chunk))
-                    current_chunk = []
-                    current_length = 0
-                
-                current_chunk.append(sentence)
-                current_length += len(sentence) + 1  # +1 for the space
-            
-            # Add the final chunk if it's not empty
-            if current_chunk:
-                chunks.append(" ".join(current_chunk))
+        
+        # Add line to current chunk
+        current_chunk.append(line)
+        current_length += len(line)
+    
+    # Add the final chunk if it's not empty
+    if current_chunk:
+        chunks.append("\n".join(current_chunk))
     
     # If no chunks were created (e.g., empty document), create at least one
     if not chunks:
@@ -223,70 +167,35 @@ async def chunk_document(doc: Document) -> List[Document]:
     return [
         Document(
             content=chunk,
-            content_type="text",
+            media_type="text/plain",
             state="chunk",
             metadata={
                 **doc.metadata,
                 "chunk_index": i,
-                "total_chunks": len(chunks),
-                "chunk_length": len(chunk)
+                "total_chunks": len(chunks)
             }
         )
         for i, chunk in enumerate(chunks)
     ]
 
 async def embed_document(doc: Document) -> Document:
-    """
-    Create a vector embedding for a document chunk.
+    """Create a vector embedding for the document."""
+    if doc.media_type != "text/plain":
+        raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
     
-    Args:
-        doc: A Document in the 'chunk' state with text content
-        
-    Returns:
-        A new Document in the 'embed' state with the embedding vector as content
-    """
-    if doc.content_type != "text":
-        raise ValueError(f"Expected content_type 'text', got '{doc.content_type}'")
+    # Simple hash-based embedding for testing
+    # In a real implementation, this would use a proper embedding model
+    hash_vector = hash(doc.content) % 1000000
+    vector = [hash_vector / 1000000]  # Fake 1D embedding
     
-    # Check if document has an error
-    if doc.metadata.get("success") is False:
-        # Return a simple placeholder embedding
-        return Document(
-            content="[0.0]",  # Placeholder embedding
-            content_type="vector",
-            state="embed",
-            metadata={
-                **doc.metadata,
-                "vector_dimensions": 1,
-                "embedding_method": "error_placeholder",
-                "embedding_success": False
-            }
-        )
-    
-    # In a real implementation, we would use a proper embedding model
-    # For this example, we'll use a simple character frequency approach
-    text = doc.content.lower()  # Normalize text
-    
-    # Create a simple embedding based on character frequencies
-    char_freq = {}
-    for char in text:
-        if char.isalnum():
-            char_freq[char] = char_freq.get(char, 0) + 1
-    
-    # Normalize by text length
-    text_length = max(1, len(text))
-    vector = [char_freq.get(chr(i), 0) / text_length for i in range(97, 123)]  # a-z frequencies
-    
-    # Return a new document with the embedding vector
     return Document(
         content=str(vector),  # Store embedding as string
-        content_type="vector",
+        media_type="vector",
         state="embed",
         metadata={
             **doc.metadata,
-            "vector_dimensions": len(vector),
-            "embedding_method": "char_frequency",
-            "embedding_success": True
+            "vector_dimensions": 1,
+            "embedding_method": "test_hash"
         }
     )
 ```
@@ -300,10 +209,11 @@ class DocumentModel(Base):
     id = Column(String, primary_key=True)
     state = Column(String, nullable=False)
     content = Column(JSON, nullable=True)
-    content_type = Column(String, default='text')
+    media_type = Column(String, default='text/plain')
+    url = Column(String, nullable=True)
     parent_id = Column(String, ForeignKey('documents.id'), nullable=True)
-    children = Column(JSON, nullable=False, default=[])
-    cmetadata = Column(JSON, nullable=False, default={})  # Note: Inconsistency with Document.metadata
+    children = relationship("DocumentModel", backref=backref("parent", remote_side=[id]), cascade="all, delete-orphan")
+    cmetadata = Column(JSON, nullable=False, default={})
 ```
 
 ### Example Usage
@@ -324,9 +234,12 @@ document_type = DocumentType(
     ]
 )
 
-# Create a DocStore with SQLite backend
-docstore = DocStore(connection_string="sqlite:///")
-doc = Document(content_type="uri", content="http://www.example.com", state="link")
+# Create a DocStore with PostgreSQL backend in RAG example
+docstore = DocStore(connection_string="postgresql://postgres:postgres@localhost/postgres")
+doc = Document(
+    url="https://docs.pydantic.dev/latest/llms.txt",
+    state="link"
+)
 docstore.add(doc)
 
 # Sample file contains the following flow (with syntax errors)

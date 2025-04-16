@@ -37,7 +37,7 @@ flowchart TD
 ## Component Relationships
 
 ### Document
-- Core entity with properties including ID, state, content, content_type, parent/child relationships, and metadata
+- Core entity with properties including ID, state, content, media_type, url, parent/child relationships, and metadata
 - Contains references to parent document (if derived) and child documents (if it generated others)
 - Implemented as a Pydantic BaseModel for validation and serialization
 - Tracks its own state as a string that corresponds to a DocumentState name
