@@ -10,8 +10,8 @@ from docstate.docstate import DocStore
 # Define simple processing functions for the pipeline
 async def download_document(doc: Document) -> Document:
     """Download content of url."""
-    if doc.content_type != "uri":
-        raise ValueError(f"Expected content_type 'uri', got '{doc.content_type}'")
+    if doc.media_type != "application/uri":
+        raise ValueError(f"Expected media_type 'application/uri', got '{doc.media_type}'")
     
     # Simulate downloading content from a URL
     # In a real implementation, this would use httpx to fetch the content
@@ -19,15 +19,15 @@ async def download_document(doc: Document) -> Document:
     
     return Document(
         content=content,
-        content_type="text",
+        media_type="text/plain",
         state="download",
         metadata={"source_url": doc.content}
     )
 
 async def chunk_document(doc: Document) -> List[Document]:
     """Split document into multiple chunks."""
-    if doc.content_type != "text":
-        raise ValueError(f"Expected content_type 'text', got '{doc.content_type}'")
+    if doc.media_type != "text/plain":
+        raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
     
     # Simple chunking strategy - split by newlines and ensure chunks aren't too long
     lines = doc.content.split("\n")
@@ -59,7 +59,7 @@ async def chunk_document(doc: Document) -> List[Document]:
     return [
         Document(
             content=chunk,
-            content_type="text",
+            media_type="text/plain",
             state="chunk",
             metadata={
                 **doc.metadata,
@@ -72,8 +72,8 @@ async def chunk_document(doc: Document) -> List[Document]:
 
 async def embed_document(doc: Document) -> Document:
     """Create a vector embedding for the document."""
-    if doc.content_type != "text":
-        raise ValueError(f"Expected content_type 'text', got '{doc.content_type}'")
+    if doc.media_type != "text/plain":
+        raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
     
     # Simple hash-based embedding for testing
     # In a real implementation, this would use a proper embedding model
@@ -82,7 +82,7 @@ async def embed_document(doc: Document) -> Document:
     
     return Document(
         content=str(vector),  # Store embedding as string
-        content_type="vector",
+        media_type="application/vector",
         state="embed",
         metadata={
             **doc.metadata,
@@ -129,7 +129,7 @@ class TestDocumentPipeline:
         # Create a document in the 'link' state
         doc = Document(
             content="http://example.com",
-            content_type="uri",
+            media_type="application/uri",
             state="link",
             metadata={"test_id": "pipeline_test"}
         )
@@ -144,7 +144,7 @@ class TestDocumentPipeline:
         assert len(download_docs) == 1  # Expect one document for link->download transition
         download_doc = download_docs[0]  # Get the first document from the list
         assert download_doc.state == "download"
-        assert download_doc.content_type == "text"
+        assert download_doc.media_type == "text/plain"
         assert "Downloaded content from" in download_doc.content
         assert download_doc.parent_id == doc_id
         
@@ -178,7 +178,7 @@ class TestDocumentPipeline:
         assert len(all_embed_docs) == len(chunk_docs)
         for i, embed_doc in enumerate(all_embed_docs):
             assert embed_doc.state == "embed"
-            assert embed_doc.content_type == "vector"
+            assert embed_doc.media_type == "application/vector"
             assert embed_doc.metadata["vector_dimensions"] == 1
             assert embed_doc.metadata["embedding_method"] == "test_hash"
             assert embed_doc.parent_id == chunk_docs[i].id
@@ -193,7 +193,7 @@ class TestDocumentPipeline:
         # Setup - create documents in various states
         original_doc = Document(
             content="http://example.com/page",
-            content_type="uri",
+            media_type="application/uri",
             state="link",
             metadata={"test_id": "query_test"}
         )
@@ -213,7 +213,7 @@ class TestDocumentPipeline:
         # Create another link document
         another_link_doc = Document(
             content="http://example.com/another",
-            content_type="uri",
+            media_type="application/uri",
             state="link"
         )
         pipeline_docstore.add(another_link_doc)
@@ -233,8 +233,8 @@ class TestDocumentPipeline:
         # Verify document content
         assert any(d.content == "http://example.com/page" for d in link_docs)
         assert any(d.content == "http://example.com/another" for d in link_docs)
-        assert download_docs[0].content_type == "text"
-        assert embed_docs[0].content_type == "vector"
+        assert download_docs[0].media_type == "text/plain"
+        assert embed_docs[0].media_type == "application/vector"
 
 
 if __name__ == "__main__":

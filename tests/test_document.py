@@ -14,7 +14,7 @@ class TestDocument:
         # ID should be auto-generated
         assert doc.id is not None
         assert len(doc.id) > 0
-        assert doc.content_type == "text"
+        assert doc.media_type == "text/plain"
         assert doc.state == "link"
         assert doc.content is None
         assert doc.parent_id is None
@@ -27,7 +27,7 @@ class TestDocument:
         
         assert doc.id is not None
         assert doc.content == "Example content"
-        assert doc.content_type == "text"
+        assert doc.media_type == "text/plain"
         assert doc.state == "download"
         assert doc.parent_id is not None
         assert len(doc.children) == 2
@@ -87,7 +87,7 @@ class TestDocument:
         """Test that setting an invalid content_type raises a validation error."""
         with pytest.raises(ValueError):
             Document(
-                content_type=123,  # content_type should be a string
+                media_type=123,  # content_type should be a string
                 state="link"
             )
 

@@ -14,7 +14,7 @@ class TestDocumentIsolated:
         # ID should be auto-generated
         assert doc.id is not None
         assert len(doc.id) > 0
-        assert doc.content_type == "text"
+        assert doc.media_type == "text/plain"
         assert doc.state == "link"
         assert doc.content is None
         assert doc.parent_id is None
@@ -27,7 +27,7 @@ class TestDocumentIsolated:
         
         assert doc.id is not None
         assert doc.content == "Example content"
-        assert doc.content_type == "text"
+        assert doc.media_type == "text/plain"
         assert doc.state == "download"
         assert doc.parent_id is not None
         assert len(doc.children) == 2
@@ -79,15 +79,15 @@ class TestDocumentIsolated:
         """Test that setting an invalid state type raises a validation error."""
         with pytest.raises(ValueError):
             Document(
-                content_type="text",
+                media_type="text/plain",
                 state=123  # State should be a string
             )
 
     def test_document_with_invalid_content_type(self):
-        """Test that setting an invalid content_type raises a validation error."""
+        """Test that setting an invalid media_type raises a validation error."""
         with pytest.raises(ValueError):
             Document(
-                content_type=123,  # content_type should be a string
+                media_type=123,  # media_type should be a string
                 state="link"
             )
 
@@ -95,14 +95,14 @@ class TestDocumentIsolated:
         """Test that setting invalid children raises a validation error."""
         with pytest.raises(ValueError):
             Document(
-                content_type="text",
+                media_type="text/plain",
                 state="link",
                 children="not-a-list"  # children should be a list
             )
         
         with pytest.raises(ValueError):
             Document(
-                content_type="text",
+                media_type="text/plain",
                 state="link",
                 children=[1, 2, 3]  # children should be a list of strings
             )
@@ -111,7 +111,7 @@ class TestDocumentIsolated:
         """Test that setting invalid metadata raises a validation error."""
         with pytest.raises(ValueError):
             Document(
-                content_type="text",
+                media_type="text/plain",
                 state="link",
                 metadata="not-a-dict"  # metadata should be a dict
             )
@@ -122,7 +122,7 @@ class TestDocumentIsolated:
         doc = Document(
             id=doc_id,
             content="Test content",
-            content_type="text",
+            media_type="text/plain",
             state="download",
             metadata={"key": "value"}
         )
@@ -133,7 +133,7 @@ class TestDocumentIsolated:
         assert isinstance(doc_dict, dict)
         assert doc_dict["id"] == doc_id
         assert doc_dict["content"] == "Test content"
-        assert doc_dict["content_type"] == "text"
+        assert doc_dict["media_type"] == "text/plain"
         assert doc_dict["state"] == "download"
         assert doc_dict["metadata"] == {"key": "value"}
         assert doc_dict["parent_id"] is None
@@ -145,7 +145,7 @@ class TestDocumentIsolated:
         doc_dict = {
             "id": doc_id,
             "content": "Test content",
-            "content_type": "text",
+            "media_type": "text/plain",
             "state": "download",
             "metadata": {"key": "value"},
             "parent_id": None,
@@ -157,7 +157,7 @@ class TestDocumentIsolated:
         
         assert doc.id == doc_id
         assert doc.content == "Test content"
-        assert doc.content_type == "text"
+        assert doc.media_type == "text/plain"
         assert doc.state == "download"
         assert doc.metadata == {"key": "value"}
         assert doc.parent_id is None
@@ -167,7 +167,7 @@ class TestDocumentIsolated:
         """Test that Document sets proper default values."""
         # Create with minimal required fields
         doc = Document(
-            content_type="text",
+            media_type="text/plain",
             state="link"
         )
         

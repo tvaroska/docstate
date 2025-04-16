@@ -42,6 +42,7 @@ flowchart LR
 - 🔄 Comprehensive API documentation
 
 ## What's Left to Build
+- Error handling - store information about document processing errors
 - Real vector embedding integration with proper embedding library
 - Advanced query capabilities for complex document retrieval
 - Streaming support for large document handling
@@ -52,39 +53,27 @@ flowchart LR
 - Monitoring system for pipeline execution
 
 ## Known Issues
-- ✅ ~DocumentType.final property implementation is missing~ - Fixed
-- ✅ ~Inconsistency between "cmetadata" column and "metadata" field~ - Fixed in DocStore methods
-- ✅ ~Syntax errors in samples/embed_pipeline.py~ - Fixed
-- ✅ ~Sample code assumes fields that aren't in the Document model~ - Fixed
-- ✅ ~Processing functions have stub implementations only~ - Implemented
-- ✅ ~No error handling for edge cases in async operations~ - Implemented
-- 🐛 Simple character frequency is used as embedding placeholder rather than real embeddings
 - 🐛 No explicit handling for very large documents (needs streaming)
 - 🐛 Database queries might not be optimized for large document sets
 - ✅ ~No batch processing capabilities for improved performance~ - Basic list input capability added to `DocStore.next`. Further concurrency improvements might be needed.
 
 ## Next Milestones
-1. **Real Embedding Integration (Current)**
-   - Research embedding libraries (sentence-transformers, etc.)
-   - Connect to an actual embedding service
-   - Add vector database integration options
-
-2. **Performance Optimization (Current)**
+1. **Performance Optimization (Current)**
    - Implement streaming for large document handling
    - Optimize database queries
    - Add batch processing capabilities (Initial list input done; explore concurrency via `asyncio.gather` in `DocStore.next`)
 
-3. **Advanced Pipeline Features (Target: Next Sprint)**
+2. **Advanced Pipeline Features (Target: Next Sprint)**
    - Custom pipeline creation utilities
    - Additional transition types
    - Monitoring and logging enhancements
 
-4. **Robustness Improvements (Target: Next Sprint)**
+3. **Robustness Improvements (Target: Next Sprint)**
    - Database migration strategy
    - Fault tolerance mechanisms
    - Recovery from failed state transitions
 
-5. **Documentation & Examples (Ongoing)**
+4. **Documentation & Examples (Ongoing)**
    - Complete API documentation
    - Create usage examples for common scenarios
    - Add inline documentation for complex logic

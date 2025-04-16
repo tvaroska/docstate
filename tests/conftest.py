@@ -31,20 +31,20 @@ def mock_process_functions():
     async def mock_download(doc):
         return Document(
             content="Downloaded content",
-            content_type="text",
+            media_type="text/plain",
             state="download"
         )
     
     async def mock_chunk(doc):
         return [
-            Document(content="Chunk 1", content_type="text", state="chunk"),
-            Document(content="Chunk 2", content_type="text", state="chunk")
+            Document(content="Chunk 1", media_type="text/plain", state="chunk"),
+            Document(content="Chunk 2", media_type="text/plain", state="chunk")
         ]
     
     async def mock_embed(doc):
         return Document(
             content="Embedded vector",
-            content_type="vector",
+            media_type="application/vector",
             state="embed"
         )
         
@@ -114,7 +114,7 @@ def root_document():
     Function scope since tests might modify the document.
     """
     return Document(
-        content_type="text",
+        media_type="text/plain",
         state="link"
     )
 
@@ -127,7 +127,7 @@ def child_document(root_document):
     Function scope since it depends on root_document which has function scope.
     """
     return Document(
-        content_type="text",
+        media_type="text/plain",
         state="download",
         parent_id=root_document.id
     )
@@ -141,7 +141,7 @@ def document_with_children():
     Function scope since tests might modify the document.
     """
     return Document(
-        content_type="text",
+        media_type="text/plain",
         state="download",
         children=[str(uuid4()), str(uuid4())]
     )
@@ -157,7 +157,7 @@ def document_with_all_fields(document_id):
     return Document(
         id=document_id,
         content="Example content",
-        content_type="text",
+        media_type="text/plain",
         state="download",
         parent_id=str(uuid4()),
         children=[str(uuid4()), str(uuid4())],

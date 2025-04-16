@@ -63,7 +63,8 @@ class Document(BaseModel):
     """
     id: str = Field(default_factory=lambda: str(uuid4()))
     content: Optional[str] = None
-    content_type: str = Field(description="Type of content - text, uri, ...")
+    media_type: str = Field(default="text/plain", description="Media type of the content (e.g., text/plain, application/pdf)")
+    url: Optional[str] = None
     state: str
     parent_id: Optional[str] = None
     children: List[str] = Field(default_factory=list)

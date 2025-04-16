@@ -3,7 +3,7 @@ import asyncio
 from uuid import uuid4
 from sqlalchemy import create_engine, Column, String, JSON, ForeignKey, Table
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship, declarative_base
+from sqlalchemy.orm import sessionmaker, relationship, declarative_base, backref
 from sqlalchemy.sql import select
 
 from docstate.document import Document, DocumentState, DocumentType, Transition
@@ -18,9 +18,10 @@ class DocumentModel(Base):
     id = Column(String, primary_key=True)
     state = Column(String, nullable=False)
     content = Column(JSON, nullable=True)
-    content_type = Column(String, default='text')
+    media_type = Column(String, default='text/plain')
+    url = Column(String, nullable=True)
     parent_id = Column(String, ForeignKey('documents.id'), nullable=True)
-    children = Column(JSON, nullable=False, default=[])
+    children = relationship("DocumentModel", backref=backref("parent", remote_side=[id]), cascade="all, delete-orphan")
     cmetadata = Column(JSON, nullable=False, default={})
 
 
@@ -73,11 +74,12 @@ class DocStore:
                     id=doc.id,
                     state=doc.state,
                     content=doc.content,
-                    content_type=doc.content_type,
+                    media_type=doc.media_type,
+                    url=doc.url,
                     parent_id=doc.parent_id,
-                    children=doc.children,
                     cmetadata=doc.metadata
                 )
+                # Children will be managed separately through relationships
                 session.add(db_doc)
                 session.commit()
                 return doc.id
@@ -95,11 +97,12 @@ class DocStore:
                         id=document.id,
                         state=document.state,
                         content=document.content,
-                        content_type=document.content_type,
+                        media_type=document.media_type,
+                        url=document.url,
                         parent_id=document.parent_id,
-                        children=document.children,
                         cmetadata=document.metadata
                     )
+                    # Children will be managed separately through relationships
                     session.add(db_doc)
                     doc_ids.append(document.id)
                 
@@ -122,13 +125,16 @@ class DocStore:
                 result = session.query(DocumentModel).filter_by(id=id).first()
                 if result is None:
                     return None
+                # Extract child IDs from the relationship
+                child_ids = [child.id for child in result.children]
                 return Document.model_validate({
                     "id": result.id,
                     "state": result.state,
                     "content": result.content,
-                    "content_type": result.content_type,
+                    "media_type": result.media_type,
+                    "url": result.url,
                     "parent_id": result.parent_id,
-                    "children": result.children,
+                    "children": child_ids,
                     "metadata": result.cmetadata
                 })
             elif state:
@@ -137,9 +143,10 @@ class DocStore:
                     "id": result.id,
                     "state": result.state,
                     "content": result.content,
-                    "content_type": result.content_type,
+                    "media_type": result.media_type,
+                    "url": result.url,
                     "parent_id": result.parent_id,
-                    "children": result.children,
+                    "children": [child.id for child in result.children],
                     "metadata": result.cmetadata
                 }) for result in results]
             else:
@@ -149,9 +156,10 @@ class DocStore:
                     "id": result.id,
                     "state": result.state,
                     "content": result.content,
-                    "content_type": result.content_type,
+                    "media_type": result.media_type,
+                    "url": result.url,
                     "parent_id": result.parent_id,
-                    "children": result.children,
+                    "children": [child.id for child in result.children],
                     "metadata": result.cmetadata
                 }) for result in results]
     
@@ -198,30 +206,17 @@ class DocStore:
             new_doc.parent_id = doc.id
             self.add(new_doc)
             added_docs.append(new_doc)
-
-        # Update parent with all child references after processing all results
-        if added_docs:  # Only update if we actually have new documents
-            # Update parent document with child reference directly in database
-            parent = self.get(id=doc.id)  # Fetch fresh parent state
-            if parent:
-                # Add all new children at once
-                updated = False
-                for added_child in added_docs:
-                    # Prevent adding duplicates
-                    if added_child.id not in parent.children:
-                        parent.add_child(added_child.id)
-                        updated = True
-
-                # Only update the database if we actually added new children
-                if updated:
-                    # Update parent in database directly
-                    with self.Session() as session:
-                        db_doc = session.query(DocumentModel).filter_by(id=parent.id).first()
-                        if db_doc:
-                            db_doc.children = parent.children  # Use updated children list
-                            # Assuming metadata updates happen in processing_func if needed
-                            # db_doc.cmetadata = parent.metadata
-                            session.commit()
+            
+            # The parent-child relationship in the database is handled automatically
+            # through the parent_id foreign key. We just need to update the
+            # Pydantic Document's children list for the current session
+            parent = self.get(id=doc.id)
+            if parent and new_doc.id not in parent.children:
+                parent.add_child(new_doc.id)
+                
+                # Note: We don't need to update the database model's children list
+                # because the relationship is automatically managed by SQLAlchemy
+                # through the parent_id foreign key on each child document
 
         # Return the list of newly created/added documents
         return added_docs

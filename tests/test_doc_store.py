@@ -38,13 +38,13 @@ class TestDocStore:
         assert retrieved_doc is not None
         assert retrieved_doc.id == doc_id
         assert retrieved_doc.state == root_document.state
-        assert retrieved_doc.content_type == root_document.content_type
+        assert retrieved_doc.media_type == root_document.media_type
 
     def test_add_document_generates_id(self, docstore):
         """Test that add generates an ID if document doesn't have one."""
         # Create document without explicitly providing an ID
         # The pydantic model will auto-generate an ID with the default_factory
-        doc = Document(content_type="text", state="link")
+        doc = Document(media_type="text/plain", state="link")
         original_id = doc.id
         
         # Add document to store - the DocStore should use the auto-generated ID
@@ -68,7 +68,7 @@ class TestDocStore:
         assert doc is not None
         assert doc.id == root_document.id
         assert doc.state == root_document.state
-        assert doc.content_type == root_document.content_type
+        assert doc.media_type == root_document.media_type
         
         # Get non-existent document
         non_existent_doc = docstore_with_docs.get(id=str(uuid4()))
@@ -77,7 +77,7 @@ class TestDocStore:
     def test_get_documents_by_state(self, docstore_with_docs, root_document):
         """Test retrieving documents by state."""
         # Add another document with same state for testing multiple retrieval
-        same_state_doc = Document(content_type="text", state=root_document.state)
+        same_state_doc = Document(media_type="text/plain", state=root_document.state)
         docstore_with_docs.add(same_state_doc)
         
         # Get documents by state
@@ -148,7 +148,7 @@ class TestDocStore:
     async def test_next_multiple_documents(self, docstore, document_type):
         """Test processing a document to its next state - multiple documents case (chunking)."""
         # Create and add download document
-        download_doc = Document(content_type="text", state="download", content="Test content")
+        download_doc = Document(media_type="text/plain", state="download", content="Test content")
         docstore.add(download_doc)
         
         # Process to next state (chunk) - should return multiple documents
@@ -173,7 +173,7 @@ class TestDocStore:
         docstore = DocStore(connection_string=sqlite_connection_string)
         
         # Create document
-        doc = Document(content_type="text", state="link")
+        doc = Document(media_type="text/plain", state="link")
         docstore.add(doc)
         
         # Attempt to process without document type
@@ -185,7 +185,7 @@ class TestDocStore:
         """Test that next raises an error when there are no valid transitions."""
         # Create document in a final state
         final_state = document_type.final[0]
-        doc = Document(content_type="text", state=final_state.name)
+        doc = Document(media_type="text/plain", state=final_state.name)
         docstore.add(doc)
         
         # Attempt to process from final state - should return an empty list now
@@ -197,9 +197,9 @@ class TestDocStore:
     async def test_next_with_list_input(self, docstore, document_type):
         """Test processing a list of documents using the next method."""
         # Create documents
-        doc1 = Document(content_type="uri", state="link", content="http://example.com/1")
-        doc2 = Document(content_type="uri", state="link", content="http://example.com/2")
-        doc3 = Document(content_type="text", state="download", content="Already downloaded") # This will transition differently
+        doc1 = Document(media_type="application/uri", state="link", content="http://example.com/1")
+        doc2 = Document(media_type="application/uri", state="link", content="http://example.com/2")
+        doc3 = Document(media_type="text/plain", state="download", content="Already downloaded") # This will transition differently
         docstore.add(doc1)
         docstore.add(doc2)
         docstore.add(doc3)
@@ -236,7 +236,7 @@ class TestDocStore:
         """Test that document metadata is properly persisted and retrieved."""
         # Create document with metadata
         metadata = {"key1": "value1", "key2": 123, "key3": {"nested": "value"}}
-        doc = Document(content_type="text", state="link", metadata=metadata)
+        doc = Document(media_type="text/plain", state="link", metadata=metadata)
         
         # Add document
         doc_id = docstore.add(doc)
