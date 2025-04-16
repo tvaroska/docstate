@@ -13,10 +13,11 @@
 
 ## Development Setup
 - Python virtual environment management with uv
-- SQLite database for development and testing
+- Testing with pytest - tests run with `uv run pytest`
+- SQLite and Postgresql databases for development and testing
 - Type checking with mypy is supported through type annotations
 - Project structure:
-  - `a2/` - Core library code (document.py, doc_store.py)
+  - `docstate/` - Core library code (document.py, doc_store.py)
   - `processing.py` - Processing functions implementation
   - `example.py` - Demonstration of the API
 

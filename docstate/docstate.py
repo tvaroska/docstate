@@ -52,6 +52,15 @@ class DocStore:
         self.document_type = document_type
         self.error_state = error_state if error_state is not None else self.ERROR_STATE
         
+    def __enter__(self):
+        """Context manager enter method for resource management."""
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit method to ensure connections are closed."""
+        if hasattr(self, 'engine'):
+            self.engine.dispose()
+        
     def set_document_type(self, document_type: DocumentType) -> None:
         """Set the document type for this DocStore."""
         self.document_type = document_type
