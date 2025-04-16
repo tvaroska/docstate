@@ -50,35 +50,61 @@ class DocStore:
         """Set the document type for this DocStore."""
         self.document_type = document_type
         
-    def add(self, doc: Document) -> str:
+    def add(self, doc: Union[Document, List[Document]]) -> Union[str, List[str]]:
         """
-        Add a document to the store and return its ID.
+        Add a document or list of documents to the store and return the ID(s).
         
-        If the document ID is None, a UUID4 will be automatically generated.
+        If any document ID is None, a UUID4 will be automatically generated.
         
         Args:
-            doc: The Document to add
+            doc: The Document or List[Document] to add
             
         Returns:
-            str: The document ID
+            Union[str, List[str]]: The document ID or list of document IDs
         """
-        # Generate UUID4 if ID is None
-        if doc.id is None:
-            doc.id = str(uuid4())
-            
-        with self.Session() as session:
-            db_doc = DocumentModel(
-                id=doc.id,
-                state=doc.state,
-                content=doc.content,
-                content_type=doc.content_type,
-                parent_id=doc.parent_id,
-                children=doc.children,
-                cmetadata=doc.metadata
-            )
-            session.add(db_doc)
-            session.commit()
-            return doc.id
+        # Handle single document case
+        if not isinstance(doc, list):
+            # Generate UUID4 if ID is None
+            if doc.id is None:
+                doc.id = str(uuid4())
+                
+            with self.Session() as session:
+                db_doc = DocumentModel(
+                    id=doc.id,
+                    state=doc.state,
+                    content=doc.content,
+                    content_type=doc.content_type,
+                    parent_id=doc.parent_id,
+                    children=doc.children,
+                    cmetadata=doc.metadata
+                )
+                session.add(db_doc)
+                session.commit()
+                return doc.id
+        
+        # Handle list of documents case
+        else:
+            doc_ids = []
+            with self.Session() as session:
+                for document in doc:
+                    # Generate UUID4 if ID is None
+                    if document.id is None:
+                        document.id = str(uuid4())
+                    
+                    db_doc = DocumentModel(
+                        id=document.id,
+                        state=document.state,
+                        content=document.content,
+                        content_type=document.content_type,
+                        parent_id=document.parent_id,
+                        children=document.children,
+                        cmetadata=document.metadata
+                    )
+                    session.add(db_doc)
+                    doc_ids.append(document.id)
+                
+                session.commit()
+                return doc_ids
     
     def get(self, id: Optional[str] = None, state: Optional[str] = None) -> Union[Document, List[Document], None]:
         """
@@ -142,67 +168,114 @@ class DocStore:
             if doc:
                 session.delete(doc)
                 session.commit()
-    
-    async def next(self, doc: Document) -> Union[Document, List[Document]]:
-        """
-        Process a document to its next state according to the document type.
-        
-        Args:
-            doc: The Document to process
-            
-        Returns:
-            Document or List[Document]: The processed document(s) in the new state
-        """
+
+    async def _process_single_document(self, doc: Document) -> Union[Document, List[Document]]:
+        """Helper function to process a single document transition."""
         if not self.document_type:
             raise ValueError("Document type not set for DocStore")
-        
-        # Get possible transitions from current state
+
         transitions = self.document_type.get_transition(doc.state)
-        
         if not transitions:
-            raise ValueError(f"No valid transitions from state '{doc.state}'")
-        
-        # Use the first available transition (could be extended to support multiple paths)
+            # If no transition, return the original document (or handle as error/final state)
+            # For now, let's consider it might be a final state or no-op
+            # raise ValueError(f"No valid transitions from state '{doc.state}'") # Option 1: Raise error
+            return doc # Option 2: Return original if no transition (e.g., final state)
+
+        # Use the first available transition
         transition = transitions[0]
         
-        # Process the document using the transition function
-        result = await transition.process_func(doc)
-        
-        # Handle the result based on whether it's a single document or list
-        if isinstance(result, list):
-            # When a document is chunked, multiple new documents are created
-            for new_doc in result:
-                new_doc.parent_id = doc.id
-                self.add(new_doc)
-                
-                # Update parent document with child reference directly in database
-                parent = self.get(id=doc.id)
-                if parent:
-                    parent.add_child(new_doc.id)
+        # Process the document
+        processed_result = await transition.process_func(doc)
+
+        results_to_add = []
+        if isinstance(processed_result, list):
+            results_to_add.extend(processed_result)
+        else:
+            results_to_add.append(processed_result)
+
+        added_docs = []
+        for new_doc in results_to_add:
+            new_doc.parent_id = doc.id
+            self.add(new_doc)
+            added_docs.append(new_doc)
+
+        # Update parent with all child references after processing all results
+        if added_docs:  # Only update if we actually have new documents
+            # Update parent document with child reference directly in database
+            parent = self.get(id=doc.id)  # Fetch fresh parent state
+            if parent:
+                # Add all new children at once
+                updated = False
+                for added_child in added_docs:
+                    # Prevent adding duplicates
+                    if added_child.id not in parent.children:
+                        parent.add_child(added_child.id)
+                        updated = True
+
+                # Only update the database if we actually added new children
+                if updated:
                     # Update parent in database directly
                     with self.Session() as session:
                         db_doc = session.query(DocumentModel).filter_by(id=parent.id).first()
                         if db_doc:
-                            db_doc.children = parent.children
-                            db_doc.cmetadata = parent.metadata
+                            db_doc.children = parent.children  # Use updated children list
+                            # Assuming metadata updates happen in processing_func if needed
+                            # db_doc.cmetadata = parent.metadata
                             session.commit()
-            
-            return result
+
+        # Return the list of newly created/added documents
+        return added_docs
+
+
+    async def next(self, docs: Union[Document, List[Document]]) -> List[Document]:
+        """
+        Process document(s) to their next state according to the document type.
+        Accepts either a single Document or a list of Documents.
+
+        Args:
+            docs: The Document or List[Document] to process
+
+        Returns:
+            List[Document]: A flattened list of the processed document(s) in the new state(s).
+                           Returns an empty list if no documents were processed or resulted in new states.
+        """
+        if not isinstance(docs, list):
+            docs_to_process = [docs]
         else:
-            # Single document transition
-            result.parent_id = doc.id
-            self.add(result)
-            
-            # Update parent document with child reference directly in database
-            parent = self.get(id=doc.id)
-            if parent:
-                parent.add_child(result.id)
-                # Update parent in database directly
-                with self.Session() as session:
-                    db_doc = session.query(DocumentModel).filter_by(id=parent.id).first()
-                    if db_doc:
-                        db_doc.children = parent.children
-                        db_doc.cmetadata = parent.metadata
-                        session.commit()
-            
-            return result
+            docs_to_process = docs
+
+        all_results = []
+        # Process each document sequentially for now. Consider asyncio.gather for concurrency later.
+        for doc in docs_to_process:
+             # Ensure we are working with a valid Document object
+            if not isinstance(doc, Document):
+                 # Potentially log a warning or raise an error for invalid input types
+                 print(f"Warning: Skipping invalid input type in list: {type(doc)}")
+                 continue
+
+            try:
+                result = await self._process_single_document(doc)
+                # _process_single_document now returns list of added docs
+                if isinstance(result, list):
+                    all_results.extend(result)
+                elif isinstance(result, Document): # Handle case where original doc might be returned
+                     # If the original document is returned (e.g., final state), decide whether to include it.
+                     # For now, we only collect *newly* created documents from transitions.
+                     # If you want to include final state docs, uncomment below:
+                     # all_results.append(result)
+                     pass
+            except ValueError as e:
+                # Re-raise ValueError exceptions like "Document type not set"
+                if "Document type not set" in str(e):
+                    raise
+                # Log error for other ValueError cases
+                print(f"ValueError processing document {doc.id}: {e}")
+                # Continue with the next document in the list
+                continue
+            except Exception as e:
+                # Log error for other exceptions
+                print(f"Error processing document {doc.id}: {e}")
+                # Continue with the next document in the list
+                continue
+
+        return all_results

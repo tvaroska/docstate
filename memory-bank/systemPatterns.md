@@ -63,7 +63,7 @@ flowchart TD
 ### DocStore
 - Manages persistence of Document objects via SQLAlchemy
 - Provides CRUD operations (add, get, update, delete) and specialized queries (by state, ID)
-- Handles the execution of state transitions via the next() method
+- Handles the execution of state transitions via the `next()` method, which accepts either a single `Document` or a `List[Document]` as input and returns a list of resulting documents.
 - Maintains document relationships in the database
 - Updates parent documents with references to their children when new documents are created
 

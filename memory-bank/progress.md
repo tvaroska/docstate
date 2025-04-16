@@ -32,6 +32,7 @@ flowchart LR
 - ✅ Integration tests for complete pipeline
 - ✅ Complete working example with full pipeline execution
 - ✅ Test fixtures for all core components
+- ✅ `DocStore.next` updated to accept `List[Document]` input, enabling basic batch submission.
 
 ## In Progress
 - 🔄 Advanced embedding library integration
@@ -60,7 +61,7 @@ flowchart LR
 - 🐛 Simple character frequency is used as embedding placeholder rather than real embeddings
 - 🐛 No explicit handling for very large documents (needs streaming)
 - 🐛 Database queries might not be optimized for large document sets
-- 🐛 No batch processing capabilities for improved performance
+- ✅ ~No batch processing capabilities for improved performance~ - Basic list input capability added to `DocStore.next`. Further concurrency improvements might be needed.
 
 ## Next Milestones
 1. **Real Embedding Integration (Current)**
@@ -71,7 +72,7 @@ flowchart LR
 2. **Performance Optimization (Current)**
    - Implement streaming for large document handling
    - Optimize database queries
-   - Add batch processing capabilities
+   - Add batch processing capabilities (Initial list input done; explore concurrency via `asyncio.gather` in `DocStore.next`)
 
 3. **Advanced Pipeline Features (Target: Next Sprint)**
    - Custom pipeline creation utilities

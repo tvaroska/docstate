@@ -128,17 +128,21 @@ class TestDocStore:
         docstore.add(root_document)
         
         # Process to next state
-        next_doc = await docstore.next(root_document)
-        
-        # Verify next document
+        next_docs_list = await docstore.next(root_document) # next now returns a list
+
+        # Verify next document list
+        assert isinstance(next_docs_list, list)
+        assert len(next_docs_list) == 1 # Should contain one new document
+        next_doc = next_docs_list[0] # Get the single document from the list
+
         assert next_doc is not None
-        assert next_doc.state == "download"  # Based on mock_process_functions
+        assert next_doc.state == "download"  # Based on mock_process_functions in conftest.py
         assert next_doc.parent_id == root_document.id
-        
+
         # Verify parent updated
         parent = docstore.get(id=root_document.id)
         assert parent is not None
-        assert next_doc.id in parent.children
+        assert next_doc.id in parent.children, f"Child ID {next_doc.id} not found in parent children {parent.children}"
 
     @pytest.mark.asyncio
     async def test_next_multiple_documents(self, docstore, document_type):
@@ -184,9 +188,49 @@ class TestDocStore:
         doc = Document(content_type="text", state=final_state.name)
         docstore.add(doc)
         
-        # Attempt to process from final state
-        with pytest.raises(ValueError, match=f"No valid transitions from state '{final_state.name}'"):
-            await docstore.next(doc)
+        # Attempt to process from final state - should return an empty list now
+        result_docs = await docstore.next(doc)
+        assert isinstance(result_docs, list)
+        assert len(result_docs) == 0
+
+    @pytest.mark.asyncio
+    async def test_next_with_list_input(self, docstore, document_type):
+        """Test processing a list of documents using the next method."""
+        # Create documents
+        doc1 = Document(content_type="uri", state="link", content="http://example.com/1")
+        doc2 = Document(content_type="uri", state="link", content="http://example.com/2")
+        doc3 = Document(content_type="text", state="download", content="Already downloaded") # This will transition differently
+        docstore.add(doc1)
+        docstore.add(doc2)
+        docstore.add(doc3)
+
+        # Process list of documents
+        input_docs = [doc1, doc2, doc3]
+        processed_docs = await docstore.next(input_docs)
+
+        # Verify results - expecting 2 'download' and 2 'chunk' docs (based on mock funcs)
+        assert isinstance(processed_docs, list)
+        assert len(processed_docs) == 4 # 2 from doc1/doc2 (link->download) + 2 from doc3 (download->chunk)
+
+        download_docs = [d for d in processed_docs if d.state == "download"]
+        chunk_docs = [d for d in processed_docs if d.state == "chunk"]
+
+        assert len(download_docs) == 2
+        assert len(chunk_docs) == 2
+
+        # Verify parentage for download docs
+        assert all(d.parent_id == doc1.id or d.parent_id == doc2.id for d in download_docs)
+        # Verify parentage for chunk docs
+        assert all(d.parent_id == doc3.id for d in chunk_docs)
+
+        # Verify parents were updated
+        parent1 = docstore.get(id=doc1.id)
+        parent2 = docstore.get(id=doc2.id)
+        parent3 = docstore.get(id=doc3.id)
+        assert parent1 and len(parent1.children) == 1 # One download child
+        assert parent2 and len(parent2.children) == 1 # One download child
+        assert parent3 and len(parent3.children) == 2 # Two chunk children
+
 
     def test_metadata_persistence(self, docstore):
         """Test that document metadata is properly persisted and retrieved."""

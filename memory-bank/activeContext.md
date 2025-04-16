@@ -19,6 +19,8 @@
 - Created comprehensive unit tests for Document classes
 - Created integration tests for the full pipeline
 - Implemented a complete pipeline example with working processing functions
+- Updated `DocStore.next` method to accept either a single `Document` or `List[Document]` and return `List[Document]`, enabling batch processing.
+- Updated relevant unit tests for `DocStore.next`.
 
 
 ## Next Steps

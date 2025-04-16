@@ -139,7 +139,10 @@ class TestDocumentPipeline:
         assert doc_id is not None
         
         # Process to 'download' state
-        download_doc = await pipeline_docstore.next(doc)
+        download_docs = await pipeline_docstore.next(doc)
+        assert isinstance(download_docs, list)
+        assert len(download_docs) == 1  # Expect one document for link->download transition
+        download_doc = download_docs[0]  # Get the first document from the list
         assert download_doc.state == "download"
         assert download_doc.content_type == "text"
         assert "Downloaded content from" in download_doc.content
@@ -164,14 +167,16 @@ class TestDocumentPipeline:
             assert chunk_doc.metadata["total_chunks"] == len(chunk_docs)
         
         # Process chunks to 'embed' state
-        embed_docs = []
+        all_embed_docs = []
         for chunk_doc in chunk_docs:
-            embed_doc = await pipeline_docstore.next(chunk_doc)
-            embed_docs.append(embed_doc)
+            chunk_embed_docs = await pipeline_docstore.next(chunk_doc)
+            assert isinstance(chunk_embed_docs, list)
+            assert len(chunk_embed_docs) == 1  # Each chunk should produce one embedding
+            all_embed_docs.extend(chunk_embed_docs)
         
         # Verify embeddings
-        assert len(embed_docs) == len(chunk_docs)
-        for i, embed_doc in enumerate(embed_docs):
+        assert len(all_embed_docs) == len(chunk_docs)
+        for i, embed_doc in enumerate(all_embed_docs):
             assert embed_doc.state == "embed"
             assert embed_doc.content_type == "vector"
             assert embed_doc.metadata["vector_dimensions"] == 1
@@ -197,11 +202,13 @@ class TestDocumentPipeline:
         doc_id = pipeline_docstore.add(original_doc)
         
         # Process through pipeline
-        download_doc = await pipeline_docstore.next(original_doc)
+        download_docs = await pipeline_docstore.next(original_doc)
+        download_doc = download_docs[0]  # Get the first document from the list
         chunk_docs = await pipeline_docstore.next(download_doc)
         
         # Only process first chunk to embed
-        embed_doc = await pipeline_docstore.next(chunk_docs[0])
+        embed_docs = await pipeline_docstore.next(chunk_docs[0])
+        embed_doc = embed_docs[0]  # Get the first document from the list
         
         # Create another link document
         another_link_doc = Document(
