@@ -34,18 +34,23 @@ class DocStore:
     the next() method.
     """
     
-    def __init__(self, connection_string: str, document_type: Optional[DocumentType] = None):
+    # Default error state name
+    ERROR_STATE = "error"
+    
+    def __init__(self, connection_string: str, document_type: Optional[DocumentType] = None, error_state: Optional[str] = None):
         """
         Initialize the DocStore with a database connection and document type.
         
         Args:
             connection_string: SQLAlchemy connection string for the database
             document_type: DocumentType defining the state machine for documents
+            error_state: Optional custom name for the error state. Defaults to DocStore.ERROR_STATE.
         """
         self.engine = create_engine(connection_string)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
         self.document_type = document_type
+        self.error_state = error_state if error_state is not None else self.ERROR_STATE
         
     def set_document_type(self, document_type: DocumentType) -> None:
         """Set the document type for this DocStore."""
@@ -192,34 +197,63 @@ class DocStore:
         # Use the first available transition
         transition = transitions[0]
         
-        # Process the document
-        processed_result = await transition.process_func(doc)
+        try:
+            # Process the document
+            processed_result = await transition.process_func(doc)
 
-        results_to_add = []
-        if isinstance(processed_result, list):
-            results_to_add.extend(processed_result)
-        else:
-            results_to_add.append(processed_result)
+            results_to_add = []
+            if isinstance(processed_result, list):
+                results_to_add.extend(processed_result)
+            else:
+                results_to_add.append(processed_result)
 
-        added_docs = []
-        for new_doc in results_to_add:
-            new_doc.parent_id = doc.id
-            self.add(new_doc)
-            added_docs.append(new_doc)
-            
-            # The parent-child relationship in the database is handled automatically
-            # through the parent_id foreign key. We just need to update the
-            # Pydantic Document's children list for the current session
-            parent = self.get(id=doc.id)
-            if parent and new_doc.id not in parent.children:
-                parent.add_child(new_doc.id)
+            added_docs = []
+            for new_doc in results_to_add:
+                new_doc.parent_id = doc.id
+                self.add(new_doc)
+                added_docs.append(new_doc)
                 
-                # Note: We don't need to update the database model's children list
-                # because the relationship is automatically managed by SQLAlchemy
-                # through the parent_id foreign key on each child document
+                # The parent-child relationship in the database is handled automatically
+                # through the parent_id foreign key. We just need to update the
+                # Pydantic Document's children list for the current session
+                parent = self.get(id=doc.id)
+                if parent and new_doc.id not in parent.children:
+                    parent.add_child(new_doc.id)
+                    
+                    # Note: We don't need to update the database model's children list
+                    # because the relationship is automatically managed by SQLAlchemy
+                    # through the parent_id foreign key on each child document
 
-        # Return the list of newly created/added documents
-        return added_docs
+            # Return the list of newly created/added documents
+            return added_docs
+            
+        except Exception as e:
+            # Create an error document
+            error_doc = Document(
+                state=self.error_state,
+                media_type="application/json",
+                content=str(e),
+                parent_id=doc.id,
+                metadata={
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "transition_from": doc.state,
+                    "transition_to": transition.to_state.name,
+                    "original_media_type": doc.media_type,
+                    "timestamp": transition.process_func.__name__
+                }
+            )
+            
+            # Add the error document to the store
+            self.add(error_doc)
+            
+            # Update the parent document's children list
+            parent = self.get(id=doc.id)
+            if parent and error_doc.id not in parent.children:
+                parent.add_child(error_doc.id)
+            
+            # Return the error document
+            return [error_doc]
 
 
     async def next(self, docs: Union[Document, List[Document]]) -> List[Document]:
