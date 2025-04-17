@@ -1,5 +1,7 @@
-import pytest
 from uuid import uuid4
+
+import pytest
+
 from docstate.document import Document, DocumentState, DocumentType, Transition
 
 
@@ -10,7 +12,7 @@ class TestDocument:
         """Test that a Document can be initialized with the required fields."""
         # Test minimal initialization
         doc = root_document
-        
+
         # ID should be auto-generated
         assert doc.id is not None
         assert len(doc.id) > 0
@@ -24,7 +26,7 @@ class TestDocument:
     def test_document_initialization_with_all_fields(self, document_with_all_fields):
         """Test that a Document can be initialized with all fields."""
         doc = document_with_all_fields
-        
+
         assert doc.id is not None
         assert doc.content == "Example content"
         assert doc.media_type == "text/plain"
@@ -68,7 +70,7 @@ class TestDocument:
         # Adding the same child again should not create a duplicate
         doc.add_child(child_id)
         assert len(doc.children) == 1
-        
+
         # Adding a different child should work
         second_child_id = str(uuid4())
         doc.add_child(second_child_id)
@@ -78,18 +80,12 @@ class TestDocument:
     def test_document_with_invalid_state(self):
         """Test that setting an invalid state type raises a validation error."""
         with pytest.raises(ValueError):
-            Document(
-                content_type="text",
-                state=123  # State should be a string
-            )
+            Document(content_type="text", state=123)  # State should be a string
 
     def test_document_with_invalid_content_type(self):
         """Test that setting an invalid content_type raises a validation error."""
         with pytest.raises(ValueError):
-            Document(
-                media_type=123,  # content_type should be a string
-                state="link"
-            )
+            Document(media_type=123, state="link")  # content_type should be a string
 
     def test_document_with_invalid_children(self):
         """Test that setting invalid children raises a validation error."""
@@ -97,14 +93,14 @@ class TestDocument:
             Document(
                 content_type="text",
                 state="link",
-                children="not-a-list"  # children should be a list
+                children="not-a-list",  # children should be a list
             )
-        
+
         with pytest.raises(ValueError):
             Document(
                 content_type="text",
                 state="link",
-                children=[1, 2, 3]  # children should be a list of strings
+                children=[1, 2, 3],  # children should be a list of strings
             )
 
     def test_document_with_invalid_metadata(self):
@@ -113,7 +109,7 @@ class TestDocument:
             Document(
                 content_type="text",
                 state="link",
-                metadata="not-a-dict"  # metadata should be a dict
+                metadata="not-a-dict",  # metadata should be a dict
             )
 
 
@@ -133,14 +129,14 @@ class TestDocumentState:
 
         # Two states with the same name should be equal
         assert state1 == state2
-        
+
         # Two states with different names should not be equal
         assert state1 != state3
-        
+
         # A state should be equal to its name string
         assert state1 == "link"
         assert state1 != "download"
-        
+
         # A state should not be equal to non-string, non-DocumentState
         assert state1 != 123
         assert state1 != ["link"]
@@ -150,17 +146,16 @@ class TestDocumentState:
         state1 = document_states["link"]
         state2 = DocumentState(name="link")
         state3 = document_states["download"]
-        
+
         # Create a dictionary with states as keys
-        state_dict = {
-            state1: "Value for link",
-            state3: "Value for download"
-        }
-        
+        state_dict = {state1: "Value for link", state3: "Value for download"}
+
         # We should be able to access the values using both the original state
         # and an equal state
         assert state_dict[state1] == "Value for link"
-        assert state_dict[state2] == "Value for link"  # state2 has the same name as state1
+        assert (
+            state_dict[state2] == "Value for link"
+        )  # state2 has the same name as state1
         assert state_dict[state3] == "Value for download"
 
 
@@ -171,13 +166,13 @@ class TestTransition:
         """Test that a Transition can be initialized."""
         from_state = document_states["link"]
         to_state = document_states["download"]
-        
+
         transition = Transition(
             from_state=from_state,
             to_state=to_state,
-            process_func=mock_process_functions["download"]
+            process_func=mock_process_functions["download"],
         )
-        
+
         assert transition.from_state == from_state
         assert transition.to_state == to_state
         assert transition.process_func == mock_process_functions["download"]
@@ -197,17 +192,17 @@ class TestDocumentType:
         link_transitions = document_type.get_transition(document_states["link"])
         assert len(link_transitions) == 1
         assert link_transitions[0] == transitions["download"]
-        
+
         # Get transitions from download state
         download_transitions = document_type.get_transition(document_states["download"])
         assert len(download_transitions) == 1
         assert download_transitions[0] == transitions["chunk"]
-        
+
         # Get transitions using string state name
         link_transitions_by_string = document_type.get_transition("link")
         assert len(link_transitions_by_string) == 1
         assert link_transitions_by_string[0] == transitions["download"]
-        
+
         # Get transitions from a state with no outgoing transitions
         embed_transitions = document_type.get_transition(document_states["embed"])
         assert len(embed_transitions) == 0
@@ -215,7 +210,7 @@ class TestDocumentType:
     def test_final_property(self, document_type, document_states):
         """Test the final property that identifies terminal states."""
         final_states = document_type.final
-        
+
         # Only embed state should be final (no outgoing transitions)
         assert len(final_states) == 1
         assert final_states[0] == document_states["embed"]

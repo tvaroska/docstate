@@ -1,5 +1,7 @@
-import pytest
 from uuid import uuid4
+
+import pytest
+
 from docstate.document import Document
 
 
@@ -10,7 +12,7 @@ class TestDocumentIsolated:
         """Test that a Document can be initialized with the required fields."""
         # Test using fixture for root document
         doc = root_document
-        
+
         # ID should be auto-generated
         assert doc.id is not None
         assert len(doc.id) > 0
@@ -24,7 +26,7 @@ class TestDocumentIsolated:
     def test_document_initialization_with_all_fields(self, document_with_all_fields):
         """Test that a Document can be initialized with all fields."""
         doc = document_with_all_fields
-        
+
         assert doc.id is not None
         assert doc.content == "Example content"
         assert doc.media_type == "text/plain"
@@ -68,7 +70,7 @@ class TestDocumentIsolated:
         # Adding the same child again should not create a duplicate
         doc.add_child(child_id)
         assert len(doc.children) == 1
-        
+
         # Adding a different child should work
         second_child_id = str(uuid4())
         doc.add_child(second_child_id)
@@ -78,18 +80,12 @@ class TestDocumentIsolated:
     def test_document_with_invalid_state(self):
         """Test that setting an invalid state type raises a validation error."""
         with pytest.raises(ValueError):
-            Document(
-                media_type="text/plain",
-                state=123  # State should be a string
-            )
+            Document(media_type="text/plain", state=123)  # State should be a string
 
     def test_document_with_invalid_content_type(self):
         """Test that setting an invalid media_type raises a validation error."""
         with pytest.raises(ValueError):
-            Document(
-                media_type=123,  # media_type should be a string
-                state="link"
-            )
+            Document(media_type=123, state="link")  # media_type should be a string
 
     def test_document_with_invalid_children(self):
         """Test that setting invalid children raises a validation error."""
@@ -97,14 +93,14 @@ class TestDocumentIsolated:
             Document(
                 media_type="text/plain",
                 state="link",
-                children="not-a-list"  # children should be a list
+                children="not-a-list",  # children should be a list
             )
-        
+
         with pytest.raises(ValueError):
             Document(
                 media_type="text/plain",
                 state="link",
-                children=[1, 2, 3]  # children should be a list of strings
+                children=[1, 2, 3],  # children should be a list of strings
             )
 
     def test_document_with_invalid_metadata(self):
@@ -113,7 +109,7 @@ class TestDocumentIsolated:
             Document(
                 media_type="text/plain",
                 state="link",
-                metadata="not-a-dict"  # metadata should be a dict
+                metadata="not-a-dict",  # metadata should be a dict
             )
 
     def test_document_serialization(self):
@@ -124,12 +120,12 @@ class TestDocumentIsolated:
             content="Test content",
             media_type="text/plain",
             state="download",
-            metadata={"key": "value"}
+            metadata={"key": "value"},
         )
-        
+
         # Convert to dict
         doc_dict = doc.model_dump()
-        
+
         assert isinstance(doc_dict, dict)
         assert doc_dict["id"] == doc_id
         assert doc_dict["content"] == "Test content"
@@ -149,12 +145,12 @@ class TestDocumentIsolated:
             "state": "download",
             "metadata": {"key": "value"},
             "parent_id": None,
-            "children": []
+            "children": [],
         }
-        
+
         # Create document from dict
         doc = Document.model_validate(doc_dict)
-        
+
         assert doc.id == doc_id
         assert doc.content == "Test content"
         assert doc.media_type == "text/plain"
@@ -166,17 +162,14 @@ class TestDocumentIsolated:
     def test_document_default_values(self):
         """Test that Document sets proper default values."""
         # Create with minimal required fields
-        doc = Document(
-            media_type="text/plain",
-            state="link"
-        )
-        
+        doc = Document(media_type="text/plain", state="link")
+
         # Check default values
         assert doc.content is None
         assert doc.parent_id is None
         assert doc.children == []
         assert doc.metadata == {}
-        
+
         # ID should be a UUID string
         assert isinstance(doc.id, str)
         assert len(doc.id) > 0

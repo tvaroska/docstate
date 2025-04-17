@@ -1,11 +1,13 @@
-import pytest
 import asyncio
+from typing import Any, Dict, List, Optional, Union
 from uuid import uuid4
-from typing import List, Optional, Dict, Any, Union
+
+import pytest
 from sqlalchemy.exc import SQLAlchemyError
 
-from docstate.document import Document, DocumentState, DocumentType, Transition
 from docstate.docstate import DocStore, DocumentModel
+from docstate.document import Document, DocumentState, DocumentType, Transition
+
 
 class TestDocStore:
     """Unit tests for the DocStore class."""
@@ -13,7 +15,9 @@ class TestDocStore:
     def test_init(self, sqlite_connection_string, document_type):
         """Test DocStore initialization."""
         # Test with document type
-        store1 = DocStore(connection_string=sqlite_connection_string, document_type=document_type)
+        store1 = DocStore(
+            connection_string=sqlite_connection_string, document_type=document_type
+        )
         assert store1.document_type == document_type
 
         # Test without document type
@@ -28,11 +32,11 @@ class TestDocStore:
         """Test adding a document to the store."""
         # Add document
         doc_id = docstore.add(root_document)
-        
+
         # Verify that the ID was returned
         assert doc_id is not None
         assert doc_id == root_document.id
-        
+
         # Retrieve and verify document
         retrieved_doc = docstore.get(id=doc_id)
         assert retrieved_doc is not None
@@ -46,14 +50,14 @@ class TestDocStore:
         # The pydantic model will auto-generate an ID with the default_factory
         doc = Document(media_type="text/plain", state="link")
         original_id = doc.id
-        
+
         # Add document to store - the DocStore should use the auto-generated ID
         doc_id = docstore.add(doc)
-        
+
         # Verify that an ID was generated
         assert doc_id is not None
         assert len(doc_id) > 0
-        
+
         # Verify document was saved with that ID
         retrieved_doc = docstore.get(id=doc_id)
         assert retrieved_doc is not None
@@ -63,13 +67,13 @@ class TestDocStore:
         """Test retrieving a document by ID."""
         # Get document
         doc = docstore_with_docs.get(id=root_document.id)
-        
+
         # Verify document
         assert doc is not None
         assert doc.id == root_document.id
         assert doc.state == root_document.state
         assert doc.media_type == root_document.media_type
-        
+
         # Get non-existent document
         non_existent_doc = docstore_with_docs.get(id=str(uuid4()))
         assert non_existent_doc is None
@@ -79,26 +83,28 @@ class TestDocStore:
         # Add another document with same state for testing multiple retrieval
         same_state_doc = Document(media_type="text/plain", state=root_document.state)
         docstore_with_docs.add(same_state_doc)
-        
+
         # Get documents by state
         docs = docstore_with_docs.get(state=root_document.state)
-        
+
         # Verify documents
         assert isinstance(docs, list)
         assert len(docs) == 2
         assert any(d.id == root_document.id for d in docs)
         assert any(d.id == same_state_doc.id for d in docs)
-        
+
         # Get documents by non-existent state
         non_existent_docs = docstore_with_docs.get(state="non-existent")
         assert isinstance(non_existent_docs, list)
         assert len(non_existent_docs) == 0
 
-    def test_get_all_documents(self, docstore_with_docs, root_document, document_with_children):
+    def test_get_all_documents(
+        self, docstore_with_docs, root_document, document_with_children
+    ):
         """Test retrieving all documents."""
         # Get all documents
         docs = docstore_with_docs.get()
-        
+
         # Verify documents
         assert isinstance(docs, list)
         assert len(docs) == 2
@@ -110,14 +116,14 @@ class TestDocStore:
         # Verify document exists
         doc = docstore_with_docs.get(id=root_document.id)
         assert doc is not None
-        
+
         # Delete document
         docstore_with_docs.delete(root_document.id)
-        
+
         # Verify document no longer exists
         deleted_doc = docstore_with_docs.get(id=root_document.id)
         assert deleted_doc is None
-        
+
         # Deleting non-existent document should not raise error
         docstore_with_docs.delete(str(uuid4()))
 
@@ -126,40 +132,46 @@ class TestDocStore:
         """Test processing a document to its next state - single document case."""
         # Add document
         docstore.add(root_document)
-        
+
         # Process to next state
-        next_docs_list = await docstore.next(root_document) # next now returns a list
+        next_docs_list = await docstore.next(root_document)  # next now returns a list
 
         # Verify next document list
         assert isinstance(next_docs_list, list)
-        assert len(next_docs_list) == 1 # Should contain one new document
-        next_doc = next_docs_list[0] # Get the single document from the list
+        assert len(next_docs_list) == 1  # Should contain one new document
+        next_doc = next_docs_list[0]  # Get the single document from the list
 
         assert next_doc is not None
-        assert next_doc.state == "download"  # Based on mock_process_functions in conftest.py
+        assert (
+            next_doc.state == "download"
+        )  # Based on mock_process_functions in conftest.py
         assert next_doc.parent_id == root_document.id
 
         # Verify parent updated
         parent = docstore.get(id=root_document.id)
         assert parent is not None
-        assert next_doc.id in parent.children, f"Child ID {next_doc.id} not found in parent children {parent.children}"
+        assert (
+            next_doc.id in parent.children
+        ), f"Child ID {next_doc.id} not found in parent children {parent.children}"
 
     @pytest.mark.asyncio
     async def test_next_multiple_documents(self, docstore, document_type):
         """Test processing a document to its next state - multiple documents case (chunking)."""
         # Create and add download document
-        download_doc = Document(media_type="text/plain", state="download", content="Test content")
+        download_doc = Document(
+            media_type="text/plain", state="download", content="Test content"
+        )
         docstore.add(download_doc)
-        
+
         # Process to next state (chunk) - should return multiple documents
         next_docs = await docstore.next(download_doc)
-        
+
         # Verify next documents
         assert isinstance(next_docs, list)
         assert len(next_docs) == 2  # Based on mock_process_functions
         assert all(d.state == "chunk" for d in next_docs)
         assert all(d.parent_id == download_doc.id for d in next_docs)
-        
+
         # Verify parent updated
         parent = docstore.get(id=download_doc.id)
         assert parent is not None
@@ -171,11 +183,11 @@ class TestDocStore:
         """Test that next raises an error when document_type is not set."""
         # Create docstore without document type
         docstore = DocStore(connection_string=sqlite_connection_string)
-        
+
         # Create document
         doc = Document(media_type="text/plain", state="link")
         docstore.add(doc)
-        
+
         # Attempt to process without document type
         with pytest.raises(ValueError, match="Document type not set for DocStore"):
             await docstore.next(doc)
@@ -187,7 +199,7 @@ class TestDocStore:
         final_state = document_type.final[0]
         doc = Document(media_type="text/plain", state=final_state.name)
         docstore.add(doc)
-        
+
         # Attempt to process from final state - should return an empty list now
         result_docs = await docstore.next(doc)
         assert isinstance(result_docs, list)
@@ -197,9 +209,15 @@ class TestDocStore:
     async def test_next_with_list_input(self, docstore, document_type):
         """Test processing a list of documents using the next method."""
         # Create documents
-        doc1 = Document(media_type="application/uri", state="link", content="http://example.com/1")
-        doc2 = Document(media_type="application/uri", state="link", content="http://example.com/2")
-        doc3 = Document(media_type="text/plain", state="download", content="Already downloaded") # This will transition differently
+        doc1 = Document(
+            media_type="application/uri", state="link", content="http://example.com/1"
+        )
+        doc2 = Document(
+            media_type="application/uri", state="link", content="http://example.com/2"
+        )
+        doc3 = Document(
+            media_type="text/plain", state="download", content="Already downloaded"
+        )  # This will transition differently
         docstore.add(doc1)
         docstore.add(doc2)
         docstore.add(doc3)
@@ -210,7 +228,9 @@ class TestDocStore:
 
         # Verify results - expecting 2 'download' and 2 'chunk' docs (based on mock funcs)
         assert isinstance(processed_docs, list)
-        assert len(processed_docs) == 4 # 2 from doc1/doc2 (link->download) + 2 from doc3 (download->chunk)
+        assert (
+            len(processed_docs) == 4
+        )  # 2 from doc1/doc2 (link->download) + 2 from doc3 (download->chunk)
 
         download_docs = [d for d in processed_docs if d.state == "download"]
         chunk_docs = [d for d in processed_docs if d.state == "chunk"]
@@ -219,7 +239,9 @@ class TestDocStore:
         assert len(chunk_docs) == 2
 
         # Verify parentage for download docs
-        assert all(d.parent_id == doc1.id or d.parent_id == doc2.id for d in download_docs)
+        assert all(
+            d.parent_id == doc1.id or d.parent_id == doc2.id for d in download_docs
+        )
         # Verify parentage for chunk docs
         assert all(d.parent_id == doc3.id for d in chunk_docs)
 
@@ -227,23 +249,22 @@ class TestDocStore:
         parent1 = docstore.get(id=doc1.id)
         parent2 = docstore.get(id=doc2.id)
         parent3 = docstore.get(id=doc3.id)
-        assert parent1 and len(parent1.children) == 1 # One download child
-        assert parent2 and len(parent2.children) == 1 # One download child
-        assert parent3 and len(parent3.children) == 2 # Two chunk children
-
+        assert parent1 and len(parent1.children) == 1  # One download child
+        assert parent2 and len(parent2.children) == 1  # One download child
+        assert parent3 and len(parent3.children) == 2  # Two chunk children
 
     def test_metadata_persistence(self, docstore):
         """Test that document metadata is properly persisted and retrieved."""
         # Create document with metadata
         metadata = {"key1": "value1", "key2": 123, "key3": {"nested": "value"}}
         doc = Document(media_type="text/plain", state="link", metadata=metadata)
-        
+
         # Add document
         doc_id = docstore.add(doc)
-        
+
         # Retrieve document
         retrieved_doc = docstore.get(id=doc_id)
-        
+
         # Verify metadata
         assert retrieved_doc.metadata == metadata
         assert retrieved_doc.metadata["key1"] == "value1"
@@ -256,22 +277,28 @@ class TestDocStore:
         initial_metadata = {"key1": "value1", "key2": 123}
         doc = Document(media_type="text/plain", state="link", metadata=initial_metadata)
         doc_id = docstore.add(doc)
-        
+
         # Retrieve document to ensure it's in the database with expected values
         retrieved_doc = docstore.get(id=doc_id)
         assert retrieved_doc.metadata == initial_metadata
-        
+
         # Update metadata
-        updated_doc = docstore.update(retrieved_doc, key1="updated_value", key3="new_value")
-        
+        updated_doc = docstore.update(
+            retrieved_doc, key1="updated_value", key3="new_value"
+        )
+
         # Verify document was updated correctly
         assert updated_doc.id == doc_id
         assert updated_doc.state == "link"  # State should remain unchanged
-        assert updated_doc.media_type == "text/plain"  # Media type should remain unchanged
+        assert (
+            updated_doc.media_type == "text/plain"
+        )  # Media type should remain unchanged
         assert updated_doc.metadata["key1"] == "updated_value"  # Updated existing key
-        assert updated_doc.metadata["key2"] == 123  # Existing key not in kwargs should remain unchanged
+        assert (
+            updated_doc.metadata["key2"] == 123
+        )  # Existing key not in kwargs should remain unchanged
         assert updated_doc.metadata["key3"] == "new_value"  # New key should be added
-        
+
         # Verify changes persist when retrieved again
         re_retrieved_doc = docstore.get(id=doc_id)
         assert re_retrieved_doc.metadata["key1"] == "updated_value"
@@ -284,10 +311,10 @@ class TestDocStore:
         initial_metadata = {"key1": "value1", "key2": 123}
         doc = Document(media_type="text/plain", state="link", metadata=initial_metadata)
         doc_id = docstore.add(doc)
-        
+
         # Update metadata using just the ID
         updated_doc = docstore.update(doc_id, key1="updated_value", key3="new_value")
-        
+
         # Verify document was updated correctly
         assert updated_doc.id == doc_id
         assert updated_doc.state == "link"
@@ -295,7 +322,7 @@ class TestDocStore:
         assert updated_doc.metadata["key1"] == "updated_value"
         assert updated_doc.metadata["key2"] == 123
         assert updated_doc.metadata["key3"] == "new_value"
-        
+
         # Verify changes persist when retrieved again
         re_retrieved_doc = docstore.get(id=doc_id)
         assert re_retrieved_doc.metadata["key1"] == "updated_value"
@@ -305,47 +332,61 @@ class TestDocStore:
     def test_update_nonexistent_document(self, docstore):
         """Test that updating a non-existent document raises an error."""
         non_existent_id = str(uuid4())
-        
+
         # Attempt to update non-existent document
-        with pytest.raises(ValueError, match=f"Document with ID {non_existent_id} not found in the database"):
+        with pytest.raises(
+            ValueError,
+            match=f"Document with ID {non_existent_id} not found in the database",
+        ):
             docstore.update(non_existent_id, key1="value1")
 
     def test_update_mismatched_document(self, docstore):
         """Test that updating a document with mismatched properties raises an error."""
         # Create and add a document
-        doc = Document(media_type="text/plain", state="link", content="original content")
+        doc = Document(
+            media_type="text/plain", state="link", content="original content"
+        )
         doc_id = docstore.add(doc)
-        
+
         # Create a modified version of the document with different state/content
         modified_doc = Document(
             id=doc_id,
             media_type="text/plain",
             state="download",  # Different state
-            content="modified content"  # Different content
+            content="modified content",  # Different content
         )
-        
+
         # Attempt to update with mismatched document
-        with pytest.raises(ValueError, match="Provided document does not match the document in the database"):
+        with pytest.raises(
+            ValueError,
+            match="Provided document does not match the document in the database",
+        ):
             docstore.update(modified_doc, key1="value1")
 
     def test_list_by_state(self, docstore):
         """Test listing documents by state."""
         # Create and add documents with the same state
         state_name = "test_state"
-        doc1 = Document(media_type="text/plain", state=state_name, metadata={"key1": "value1"})
-        doc2 = Document(media_type="text/plain", state=state_name, metadata={"key1": "value2"})
-        doc3 = Document(media_type="text/plain", state="other_state", metadata={"key1": "value1"})
+        doc1 = Document(
+            media_type="text/plain", state=state_name, metadata={"key1": "value1"}
+        )
+        doc2 = Document(
+            media_type="text/plain", state=state_name, metadata={"key1": "value2"}
+        )
+        doc3 = Document(
+            media_type="text/plain", state="other_state", metadata={"key1": "value1"}
+        )
         docstore.add(doc1)
         docstore.add(doc2)
         docstore.add(doc3)
-        
+
         # Test listing documents by state only
         docs = list(docstore.list(state=state_name))
         assert len(docs) == 2
         assert all(d.state == state_name for d in docs)
         assert any(d.id == doc1.id for d in docs)
         assert any(d.id == doc2.id for d in docs)
-        
+
         # Test listing documents with no results
         docs = list(docstore.list(state="non_existent_state"))
         assert len(docs) == 0
@@ -354,85 +395,113 @@ class TestDocStore:
         """Test listing documents by state and metadata filters."""
         # Create and add documents with different metadata
         state_name = "filter_test"
-        doc1 = Document(media_type="text/plain", state=state_name, metadata={
-            "category": "article",
-            "tags": ["news", "tech"],
-            "author": "Alice"
-        })
-        doc2 = Document(media_type="text/plain", state=state_name, metadata={
-            "category": "article",
-            "tags": ["news", "politics"],
-            "author": "Bob"
-        })
-        doc3 = Document(media_type="text/plain", state=state_name, metadata={
-            "category": "blog",
-            "tags": ["personal", "tech"],
-            "author": "Alice"
-        })
+        doc1 = Document(
+            media_type="text/plain",
+            state=state_name,
+            metadata={
+                "category": "article",
+                "tags": ["news", "tech"],
+                "author": "Alice",
+            },
+        )
+        doc2 = Document(
+            media_type="text/plain",
+            state=state_name,
+            metadata={
+                "category": "article",
+                "tags": ["news", "politics"],
+                "author": "Bob",
+            },
+        )
+        doc3 = Document(
+            media_type="text/plain",
+            state=state_name,
+            metadata={
+                "category": "blog",
+                "tags": ["personal", "tech"],
+                "author": "Alice",
+            },
+        )
         docstore.add(doc1)
         docstore.add(doc2)
         docstore.add(doc3)
-        
+
         # Test filtering by single metadata field
         docs = list(docstore.list(state=state_name, category="article"))
         assert len(docs) == 2
         assert all(d.metadata["category"] == "article" for d in docs)
-        
+
         # Test filtering by another metadata field
         docs = list(docstore.list(state=state_name, author="Alice"))
         assert len(docs) == 2
         assert all(d.metadata["author"] == "Alice" for d in docs)
-        
+
         # Test filtering by multiple metadata fields (AND logic)
         docs = list(docstore.list(state=state_name, category="article", author="Alice"))
         assert len(docs) == 1
         assert docs[0].metadata["category"] == "article"
         assert docs[0].metadata["author"] == "Alice"
-        
+
         # Test filtering with no matching results
         docs = list(docstore.list(state=state_name, category="non_existent"))
         assert len(docs) == 0
-        
+
     def test_list_with_leaf_parameter(self, docstore):
         """Test listing documents with the leaf parameter."""
         # Create documents with the same state
         state_name = "leaf_test"
-        
+
         # Parent document
-        parent_doc = Document(media_type="text/plain", state=state_name, metadata={"type": "parent"})
+        parent_doc = Document(
+            media_type="text/plain", state=state_name, metadata={"type": "parent"}
+        )
         parent_id = docstore.add(parent_doc)
-        
+
         # Child documents
-        child_doc1 = Document(media_type="text/plain", state=state_name, parent_id=parent_id, metadata={"type": "child"})
-        child_doc2 = Document(media_type="text/plain", state=state_name, parent_id=parent_id, metadata={"type": "child"})
-        
+        child_doc1 = Document(
+            media_type="text/plain",
+            state=state_name,
+            parent_id=parent_id,
+            metadata={"type": "child"},
+        )
+        child_doc2 = Document(
+            media_type="text/plain",
+            state=state_name,
+            parent_id=parent_id,
+            metadata={"type": "child"},
+        )
+
         # Another parent-less document
-        leaf_doc = Document(media_type="text/plain", state=state_name, metadata={"type": "leaf"})
-        
+        leaf_doc = Document(
+            media_type="text/plain", state=state_name, metadata={"type": "leaf"}
+        )
+
         # Add all documents
         docstore.add(child_doc1)
         docstore.add(child_doc2)
         docstore.add(leaf_doc)
-        
+
         # Update the parent document's children list
         parent = docstore.get(id=parent_id)
         parent.add_child(child_doc1.id)
         parent.add_child(child_doc2.id)
-        
+
         # First, test with leaf=True (default)
         docs = list(docstore.list(state=state_name))
-        assert len(docs) == 3  # The parent document has children, but the other documents are leaf nodes
+        assert (
+            len(docs) == 3
+        )  # The parent document has children, but the other documents are leaf nodes
         assert all(d.id in [child_doc1.id, child_doc2.id, leaf_doc.id] for d in docs)
-        
+
         # Test with leaf=False to include all documents
         docs = list(docstore.list(state=state_name, leaf=False))
         assert len(docs) == 4  # Should include all documents
-        
+
         # Test with metadata filtering and leaf=True
         docs = list(docstore.list(state=state_name, leaf=True, type="child"))
         assert len(docs) == 2
         assert all(d.metadata["type"] == "child" for d in docs)
-        
+
         # Test with metadata filtering and leaf=False
         docs = list(docstore.list(state=state_name, leaf=False, type="parent"))
         assert len(docs) == 1

@@ -1,12 +1,12 @@
 # Progress: Document Processing Pipeline
 
-## Current Status: RAG Example Implemented, Advanced Features in Development
+## Current Status: Advanced Features Implemented, Optimizations Underway
 
-The project has progressed from initial design to a robust implementation with all core components implemented and tested. The RAG example demonstrates practical usage with error handling. Focus now is on optimization, real embedding integration, and enhanced documentation.
+The project has advanced significantly from initial design to a mature implementation with all core components and several advanced features in place. The RAG example now demonstrates practical usage with real embedding libraries, error handling, and flexible document querying. Current focus is on optimizations, streaming capability for large documents, and expanded format support.
 
 ```mermaid
 flowchart LR
-    Design[Design Phase] --> Sample[Sample Code] --> Implementation[Implementation] --> Debug[Debugging & Fixes] --> Testing[Testing] --> Examples[Examples] --> Optimization[Optimization] --> Release[Initial Release]
+    Design[Design Phase] --> Sample[Sample Code] --> Implementation[Implementation] --> Debug[Debugging & Fixes] --> Testing[Testing] --> Examples[Examples] --> Advanced[Advanced Features] --> Optimization[Optimization] --> Release[Initial Release]
     
     style Design fill:#bbf,stroke:#33f,stroke-width:2px
     style Sample fill:#bbf,stroke:#33f,stroke-width:2px
@@ -14,6 +14,7 @@ flowchart LR
     style Debug fill:#bbf,stroke:#33f,stroke-width:2px
     style Testing fill:#bbf,stroke:#33f,stroke-width:2px
     style Examples fill:#bbf,stroke:#33f,stroke-width:2px
+    style Advanced fill:#bbf,stroke:#33f,stroke-width:2px
     style Optimization fill:#fbb,stroke:#f33,stroke-width:2px,stroke-dasharray: 5 5
     style Release fill:#fff,stroke:#999
 ```
@@ -39,18 +40,22 @@ flowchart LR
 - ✅ RAG example demonstrating real-world usage
 - ✅ Error handling for network failures and malformed URLs
 - ✅ Batch processing with mixed success/failure handling
+- ✅ `DocStore.finish()` method for complete pipeline processing
+- ✅ `DocStore.list()` method with flexible querying and filtering
+- ✅ Real vector embedding integration using VertexAI Embeddings
+- ✅ Vector storage using PGVector
+- ✅ Advanced document chunking using LangChain text splitters
 
 ## In Progress
-- 🔄 Real embedding library integration
+- 🔄 Streaming support for large document handling
 - 🔄 Performance optimization for larger document sets
-- 🔄 Stream processing for large documents
 - 🔄 Comprehensive API documentation
 - 🔄 Support for additional document formats
 
 ## What's Left to Build
-- Real vector embedding integration with proper embedding library (sentence-transformers)
-- Advanced query capabilities for complex document retrieval
 - Streaming support for large document handling
+- Concurrency improvements with asyncio.gather
+- Advanced query capabilities for complex document retrieval
 - Database migration strategy for schema changes
 - Additional utility functions for common document operations
 - Expanded documentation with detailed examples
@@ -60,14 +65,13 @@ flowchart LR
 ## Known Issues
 - 🐛 No explicit handling for very large documents (needs streaming)
 - 🐛 Database queries might not be optimized for large document sets
-- 🐛 Hash-based embedding in RAG example is a placeholder and not suitable for production
+- 🐛 Need to improve concurrency for better performance with large document sets
 
 ## Next Milestones
-1. **Advanced Embeddings & Performance (Current)**
-   - Implement real embedding models integration
+1. **Performance Optimizations (Current)**
    - Implement streaming for large document handling
    - Optimize database queries
-   - Explore concurrency via `asyncio.gather` in `DocStore.next`
+   - Implement concurrency via `asyncio.gather` in `DocStore.next`
 
 2. **Additional Document Formats (Target: Next Sprint)**
    - PDF processor
@@ -84,4 +88,4 @@ flowchart LR
    - Complete API documentation
    - Create usage examples for common scenarios
    - Add inline documentation for complex logic
-   - Add RAG integration examples with LLMs
+   - Add RAG integration examples with different LLMs

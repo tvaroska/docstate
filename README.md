@@ -1,39 +1,34 @@
 # DocState
 
-DocState is a library designed to manage state transitions for documents in a database. It provides a clean, declarative way to define and execute document processing pipelines, with built-in error handling and state tracking.
+DocState is a document processing pipeline library that manages documents through various processing states using a state machine architecture. It provides a clean, structured way to process documents through defined state transitions with full parent-child relationship tracking and database persistence.
 
 ## Features
 
-- **Declarative Pipeline Definition**: Define document processing pipelines using simple decorator syntax
-- **Automatic State Tracking**: Document states are automatically tracked and persisted
-- **Error Handling**: Dedicated error states with the ability to retry or resume processing
-- **Database Integration**: Built-in support for document persistence
-- **Atomic Transitions**: State transitions are atomic, ensuring consistency
-- **Extensible Architecture**: Easy to extend with custom state transitions and processors
+- **State Machine Architecture**: Documents progress through well-defined states with explicit transitions
+- **Parent-Child Relationship Tracking**: Maintain document lineage throughout transformations
+- **Database Persistence**: Store documents with SQLAlchemy (SQLite and PostgreSQL support)
+- **Async Processing**: All document processing steps are implemented as async functions
+- **Flexible Querying**: Query documents by state, relationships, and metadata
+- **Error Handling**: Robust error handling with custom error states
+- **Batch Processing**: Process multiple documents concurrently
 
 ## Installation
 
 ### Using uv (Recommended)
-
-DocState now uses uv as its build system for faster and more reliable dependency management.
 
 ```bash
 # Clone the repository
 git clone https://github.com/docstate/docstate.git
 cd docstate
 
-# Option 1: Use the install script
-./install.sh
-
-# Option 2: Manual installation
 # Create a virtual environment
 uv venv
 
 # Activate the virtual environment
 source .venv/bin/activate
 
-# Install in development mode with all extras
-uv pip install -e ".[dev,http,ai]"
+# Install in development mode
+uv pip install -e .
 ```
 
 ### Using pip
@@ -49,64 +44,154 @@ python -m venv .venv
 # Activate the virtual environment
 source .venv/bin/activate
 
-# Install in development mode with all extras
-pip install -e ".[dev,http,ai]"
+# Install in development mode
+pip install -e .
 ```
 
 ## Basic Usage
 
 ```python
-import requests
-from docstate import Document, DocState, START, END
+from typing import List
+import asyncio
+import httpx
+from docstate.document import Document
+from docstate.docstate import DocStore, DocumentType, DocumentState, Transition
 
-# Initialize DocState with database connection
-docs = DocState(connection_string)
+# Define document states
+link = DocumentState(name="link")
+download = DocumentState(name="download")
+chunk = DocumentState(name="chunk")
+embed = DocumentState(name="embed")
 
-# Define state transitions
-@docs.transition(START, 'download', error='download_error')
-def download(document: Document) -> Document:
-    """Download content from document's URI"""
-    response = requests.get(document.uri)
-    document.content = response.text
-    return document
+# Define processing functions
+async def download_document(doc: Document) -> Document:
+    """Download content from URL."""
+    if not doc.url:
+        raise ValueError(f"Expected url, got '{doc.media_type}'")
 
-@docs.transition('download', END, error='summary_error')
-def summarize(document: Document) -> Document:
-    """Process the document content"""
-    document.metadata['word_count'] = len(document.content.split())
-    return document
+    async with httpx.AsyncClient() as client:
+        response = await client.get(doc.url)
+        response.raise_for_status()
+        content = response.text
 
-# Create and process a document
-doc = docs(uri='https://www.example.com')
+    return Document(
+        content=content,
+        media_type="text/plain",
+        state="download",
+        metadata={"source_url": doc.url}
+    )
 
-# Check initial state
-assert doc.state == START
+async def chunk_document(doc: Document) -> List[Document]:
+    """Split document into multiple chunks."""
+    # Implement chunking logic
+    chunks = [doc.content[i:i+1000] for i in range(0, len(doc.content), 1000)]
+    
+    return [
+        Document(
+            content=chunk,
+            media_type="text/plain",
+            state="chunk",
+            metadata={
+                **doc.metadata,
+                "chunk_index": i,
+                "total_chunks": len(chunks)
+            }
+        )
+        for i, chunk in enumerate(chunks)
+    ]
 
-# Execute next transition (download)
-doc.next_step()
+async def embed_document(doc: Document) -> Document:
+    """Create a vector embedding for the document."""
+    # Implement embedding logic (simplified example)
+    embedding = hash(doc.content) % 1000  # Placeholder for real embedding
+    
+    return Document(
+        content=str(embedding),
+        media_type="vector",
+        state="embed",
+        metadata={
+            **doc.metadata,
+            "vector_dimensions": 1,
+            "embedding_method": "simple_hash"
+        }
+    )
 
-# Check state after download
-assert doc.state == 'download'
+# Define transitions
+transitions = [
+    Transition(from_state=link, to_state=download, process_func=download_document),
+    Transition(from_state=download, to_state=chunk, process_func=chunk_document),
+    Transition(from_state=chunk, to_state=embed, process_func=embed_document),
+]
 
-# Execute final transition (summarize)
-doc.next_step()
+# Create document type
+doctype = DocumentType(
+    states=[link, download, chunk, embed],
+    transitions=transitions
+)
 
-# Check final state
-assert doc.state == END
+# Initialize docstore
+docstore = DocStore(connection_string="sqlite:///documents.db", document_type=doctype)
+
+# Create a document
+doc = Document(
+    url='https://example.com',
+    state='link'
+)
+
+# Add document to store
+doc_id = docstore.add(doc)
+
+# Process document
+async def process_document():
+    # Process document through a single transition
+    result_docs = await docstore.next(doc)
+    
+    # Or process through entire pipeline
+    final_docs = await docstore.finish(doc)
+    
+    # Query documents by state
+    embed_docs = list(docstore.list(state="embed"))
+    
+    # Query with metadata filters
+    filtered_docs = list(docstore.list(state="chunk", total_chunks=2))
+
+# Run the async process
+asyncio.run(process_document())
 ```
+
+## RAG Example Integration
+
+The library includes a fully-functional RAG (Retrieval Augmented Generation) example that demonstrates integration with:
+
+- VertexAI for embeddings
+- PGVector for vector storage
+- LangChain text splitters for document chunking
+
+See `examples/rag.py` for the complete implementation.
+
+## Current Status
+
+The project has implemented all core components:
+- ✅ Document, DocumentState, DocumentType, and Transition classes
+- ✅ DocStore with SQLAlchemy for document persistence
+- ✅ Parent-child relationship tracking
+- ✅ Processing functions (download, chunk, embed)
+- ✅ Error handling with custom error states
+- ✅ Batch processing with mixed success/failure handling
+- ✅ Vector embedding integration with VertexAI
+- ✅ Comprehensive test suite
+
+In progress features:
+- 🔄 Streaming support for large document handling
+- 🔄 Performance optimization for larger document sets
+- 🔄 Additional document format support (PDF, DOCX, HTML)
+- 🔄 Concurrency improvements with asyncio.gather
 
 ## Development
 
 ```bash
-# Install development dependencies
-uv pip install -r requirements-dev.txt
-
 # Run tests
-pytest
-
-# Format code
-black docstate
-isort docstate
+uv run pytest
 
 # Type checking
 mypy docstate
@@ -114,10 +199,13 @@ mypy docstate
 
 ## Requirements
 
-- Python 3.12+
-- SQLAlchemy 2.0+
-- Alembic 1.10+
-- Pydantic 2.0+
+- Python 3.8+
+- SQLAlchemy
+- Pydantic
+- httpx
+- langchain (for text splitters)
+- pgvector (for PostgreSQL vector storage)
+- google-cloud-aiplatform (for VertexAI embeddings)
 
 ## License
 
