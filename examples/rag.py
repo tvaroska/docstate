@@ -5,7 +5,17 @@ import httpx
 from docstate.document import Document
 from docstate.docstate import DocStore, DocumentType, DocumentState, Transition
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_postgres import PGVector
+from langchain_google_vertexai import VertexAIEmbeddings
+
 DB = 'postgresql://postgres:postgres@localhost/postgres'
+
+embeddings = VertexAIEmbeddings(model="text-embedding-004")
+vectorstore = PGVector(
+    connection=DB,
+    embeddings=embeddings
+)
 
 async def download_document(doc: Document) -> Document:
     """Download content of url."""
@@ -34,32 +44,10 @@ async def chunk_document(doc: Document) -> List[Document]:
     if doc.media_type != "text/plain":
         raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
     
-    # Simple chunking strategy - split by newlines and ensure chunks aren't too long
-    lines = doc.content.split("\n")
-    chunks = []
-    current_chunk = []
-    current_length = 0
-    max_chunk_length = 100  # Simple character limit
-    
-    for line in lines:
-        # If adding this line would exceed max length, finalize current chunk
-        if current_length + len(line) > max_chunk_length and current_chunk:
-            chunks.append("\n".join(current_chunk))
-            current_chunk = []
-            current_length = 0
-        
-        # Add line to current chunk
-        current_chunk.append(line)
-        current_length += len(line)
-    
-    # Add the final chunk if it's not empty
-    if current_chunk:
-        chunks.append("\n".join(current_chunk))
-    
-    # If no chunks were created (e.g., empty document), create at least one
-    if not chunks:
-        chunks = [""]
-    
+
+    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
+
+    chunks = splitter.split_text(doc.content)
     # Create Document objects for each chunk
     return [
         Document(
@@ -123,11 +111,6 @@ async def main():
     )
 
     await docstore.finish(doc)
-    # docstore.add(doc)
-    # doc2 = await docstore.next(doc)
-    # doc3 = await docstore.next(doc2)
-    # doc4 = await docstore.next(doc3)
-    # doc5 = await docstore.next(doc4)
 
     error_doc = Document(
         url='htt://docs.pydantic.dev/latest/llms.txt',
@@ -135,8 +118,6 @@ async def main():
     )
 
     await docstore.finish(error_doc)    
-    # docstore.add(error_doc)
-    # error_doc2 = await docstore.next(error_doc)
 
     pass
 

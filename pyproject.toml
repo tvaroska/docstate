@@ -67,4 +67,5 @@ dev = [
     "langchain-community>=0.3.21",
     "langchain-postgres>=0.0.14",
     "psycopg2-binary>=2.9.10",
+    "langchain-google-vertexai>=2.0.20",
 ]
