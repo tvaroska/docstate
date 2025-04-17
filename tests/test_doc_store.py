@@ -328,6 +328,116 @@ class TestDocStore:
         with pytest.raises(ValueError, match="Provided document does not match the document in the database"):
             docstore.update(modified_doc, key1="value1")
 
+    def test_list_by_state(self, docstore):
+        """Test listing documents by state."""
+        # Create and add documents with the same state
+        state_name = "test_state"
+        doc1 = Document(media_type="text/plain", state=state_name, metadata={"key1": "value1"})
+        doc2 = Document(media_type="text/plain", state=state_name, metadata={"key1": "value2"})
+        doc3 = Document(media_type="text/plain", state="other_state", metadata={"key1": "value1"})
+        docstore.add(doc1)
+        docstore.add(doc2)
+        docstore.add(doc3)
+        
+        # Test listing documents by state only
+        docs = list(docstore.list(state=state_name))
+        assert len(docs) == 2
+        assert all(d.state == state_name for d in docs)
+        assert any(d.id == doc1.id for d in docs)
+        assert any(d.id == doc2.id for d in docs)
+        
+        # Test listing documents with no results
+        docs = list(docstore.list(state="non_existent_state"))
+        assert len(docs) == 0
+
+    def test_list_with_metadata_filter(self, docstore):
+        """Test listing documents by state and metadata filters."""
+        # Create and add documents with different metadata
+        state_name = "filter_test"
+        doc1 = Document(media_type="text/plain", state=state_name, metadata={
+            "category": "article",
+            "tags": ["news", "tech"],
+            "author": "Alice"
+        })
+        doc2 = Document(media_type="text/plain", state=state_name, metadata={
+            "category": "article",
+            "tags": ["news", "politics"],
+            "author": "Bob"
+        })
+        doc3 = Document(media_type="text/plain", state=state_name, metadata={
+            "category": "blog",
+            "tags": ["personal", "tech"],
+            "author": "Alice"
+        })
+        docstore.add(doc1)
+        docstore.add(doc2)
+        docstore.add(doc3)
+        
+        # Test filtering by single metadata field
+        docs = list(docstore.list(state=state_name, category="article"))
+        assert len(docs) == 2
+        assert all(d.metadata["category"] == "article" for d in docs)
+        
+        # Test filtering by another metadata field
+        docs = list(docstore.list(state=state_name, author="Alice"))
+        assert len(docs) == 2
+        assert all(d.metadata["author"] == "Alice" for d in docs)
+        
+        # Test filtering by multiple metadata fields (AND logic)
+        docs = list(docstore.list(state=state_name, category="article", author="Alice"))
+        assert len(docs) == 1
+        assert docs[0].metadata["category"] == "article"
+        assert docs[0].metadata["author"] == "Alice"
+        
+        # Test filtering with no matching results
+        docs = list(docstore.list(state=state_name, category="non_existent"))
+        assert len(docs) == 0
+        
+    def test_list_with_leaf_parameter(self, docstore):
+        """Test listing documents with the leaf parameter."""
+        # Create documents with the same state
+        state_name = "leaf_test"
+        
+        # Parent document
+        parent_doc = Document(media_type="text/plain", state=state_name, metadata={"type": "parent"})
+        parent_id = docstore.add(parent_doc)
+        
+        # Child documents
+        child_doc1 = Document(media_type="text/plain", state=state_name, parent_id=parent_id, metadata={"type": "child"})
+        child_doc2 = Document(media_type="text/plain", state=state_name, parent_id=parent_id, metadata={"type": "child"})
+        
+        # Another parent-less document
+        leaf_doc = Document(media_type="text/plain", state=state_name, metadata={"type": "leaf"})
+        
+        # Add all documents
+        docstore.add(child_doc1)
+        docstore.add(child_doc2)
+        docstore.add(leaf_doc)
+        
+        # Update the parent document's children list
+        parent = docstore.get(id=parent_id)
+        parent.add_child(child_doc1.id)
+        parent.add_child(child_doc2.id)
+        
+        # First, test with leaf=True (default)
+        docs = list(docstore.list(state=state_name))
+        assert len(docs) == 3  # The parent document has children, but the other documents are leaf nodes
+        assert all(d.id in [child_doc1.id, child_doc2.id, leaf_doc.id] for d in docs)
+        
+        # Test with leaf=False to include all documents
+        docs = list(docstore.list(state=state_name, leaf=False))
+        assert len(docs) == 4  # Should include all documents
+        
+        # Test with metadata filtering and leaf=True
+        docs = list(docstore.list(state=state_name, leaf=True, type="child"))
+        assert len(docs) == 2
+        assert all(d.metadata["type"] == "child" for d in docs)
+        
+        # Test with metadata filtering and leaf=False
+        docs = list(docstore.list(state=state_name, leaf=False, type="parent"))
+        assert len(docs) == 1
+        assert docs[0].metadata["type"] == "parent"
+
 
 if __name__ == "__main__":
     pytest.main()

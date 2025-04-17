@@ -115,9 +115,27 @@ async def main():
         state='link'
     )
 
-    await docstore.finish(error_doc)    
-
-    pass
+    await docstore.finish(error_doc)
+    
+    # Examples of using the list method
+    
+    # List all documents in 'embed' state (only leaf nodes - default)
+    print("\nListing embed documents (leaf nodes only):")
+    embed_docs = list(docstore.list(state="embed"))
+    for doc in embed_docs:
+        print(f"ID: {doc.id}, State: {doc.state}, Children: {len(doc.children)}")
+    
+    # List all documents in 'download' state (including non-leaf nodes)
+    print("\nListing download documents (including non-leaf nodes):")
+    download_docs = list(docstore.list(state="download", leaf=False))
+    for doc in download_docs:
+        print(f"ID: {doc.id}, State: {doc.state}, Children: {len(doc.children)}")
+    
+    # List documents with metadata filtering
+    print("\nListing documents with metadata filtering:")
+    filtered_docs = list(docstore.list(state="chunk", total_chunks=2))
+    for doc in filtered_docs:
+        print(f"ID: {doc.id}, State: {doc.state}, Chunk index: {doc.metadata.get('chunk_index')}")
 
 if __name__ == '__main__':
     asyncio.run(main())

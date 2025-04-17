@@ -1,12 +1,11 @@
-from typing import List, Optional, Dict, Any, Union, Callable
-import asyncio
+from typing import List, Optional, Union
 from uuid import uuid4
-from sqlalchemy import create_engine, Column, String, JSON, ForeignKey, Table
+from sqlalchemy import create_engine, Column, String, JSON, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship, declarative_base, backref
 from sqlalchemy.sql import select
 
-from docstate.document import Document, DocumentState, DocumentType, Transition
+from docstate.document import Document, DocumentType
 
 Base = declarative_base()
 
@@ -368,6 +367,62 @@ class DocStore:
                 "children": [child.id for child in db_doc.children],
                 "metadata": current_metadata  # Use the locally updated metadata to ensure it's correct
             })
+    
+    def list(self, state: str, leaf: bool = True, **kwargs) -> Document:
+        """
+        Generate documents with the specified state and metadata filters.
+        
+        Args:
+            state: Document state to filter by (required)
+            leaf: If True, only returns documents without children (default: True)
+            **kwargs: Optional metadata key/value pairs to filter by
+            
+        Yields:
+            Document: Documents matching the specified criteria
+        """
+        with self.Session() as session:
+            # Start with a query for the specified state
+            query = session.query(DocumentModel).filter_by(state=state)
+            
+            # Get all documents with the specified state first
+            results = query.all()
+            
+            # Filter results based on metadata and leaf parameter
+            for result in results:
+                # Skip if we want leaf nodes only and this document has children
+                if leaf and result.children:
+                    continue
+                    
+                # If there are metadata filters, check them
+                if kwargs:
+                    # Check if document's metadata matches all provided kwargs
+                    if result.cmetadata is not None:  # Make sure metadata exists
+                        # Check if all conditions match
+                        if all(key in result.cmetadata and result.cmetadata[key] == value 
+                               for key, value in kwargs.items()):
+                            # Build and yield document
+                            yield Document.model_validate({
+                                "id": result.id,
+                                "state": result.state,
+                                "content": result.content,
+                                "media_type": result.media_type,
+                                "url": result.url,
+                                "parent_id": result.parent_id,
+                                "children": [child.id for child in result.children],
+                                "metadata": result.cmetadata
+                            })
+                else:
+                    # No metadata filters, just yield document if it passes leaf check
+                    yield Document.model_validate({
+                        "id": result.id,
+                        "state": result.state,
+                        "content": result.content,
+                        "media_type": result.media_type,
+                        "url": result.url,
+                        "parent_id": result.parent_id,
+                        "children": [child.id for child in result.children],
+                        "metadata": result.cmetadata
+                    })
     
     async def finish(self, docs: Union[Document, List[Document]]) -> List[Document]:
         """
