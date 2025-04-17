@@ -68,13 +68,11 @@ async def embed_document(doc: Document) -> Document:
     if doc.media_type != "text/plain":
         raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
     
-    # Simple hash-based embedding for testing
-    # In a real implementation, this would use a proper embedding model
-    hash_vector = hash(doc.content) % 1000000
-    vector = [hash_vector / 1000000]  # Fake 1D embedding
-    
+    id = vectorstore.add_texts([doc.content])
+    id = [0]
+
     return Document(
-        content=str(vector),  # Store embedding as string
+        content=str(id[0]),  # Store embedding as string
         media_type="vector",
         state="embed",
         metadata={

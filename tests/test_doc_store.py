@@ -250,6 +250,84 @@ class TestDocStore:
         assert retrieved_doc.metadata["key2"] == 123
         assert retrieved_doc.metadata["key3"]["nested"] == "value"
 
+    def test_update_with_document_object(self, docstore):
+        """Test updating document metadata using a Document object."""
+        # Create and add a document with initial metadata
+        initial_metadata = {"key1": "value1", "key2": 123}
+        doc = Document(media_type="text/plain", state="link", metadata=initial_metadata)
+        doc_id = docstore.add(doc)
+        
+        # Retrieve document to ensure it's in the database with expected values
+        retrieved_doc = docstore.get(id=doc_id)
+        assert retrieved_doc.metadata == initial_metadata
+        
+        # Update metadata
+        updated_doc = docstore.update(retrieved_doc, key1="updated_value", key3="new_value")
+        
+        # Verify document was updated correctly
+        assert updated_doc.id == doc_id
+        assert updated_doc.state == "link"  # State should remain unchanged
+        assert updated_doc.media_type == "text/plain"  # Media type should remain unchanged
+        assert updated_doc.metadata["key1"] == "updated_value"  # Updated existing key
+        assert updated_doc.metadata["key2"] == 123  # Existing key not in kwargs should remain unchanged
+        assert updated_doc.metadata["key3"] == "new_value"  # New key should be added
+        
+        # Verify changes persist when retrieved again
+        re_retrieved_doc = docstore.get(id=doc_id)
+        assert re_retrieved_doc.metadata["key1"] == "updated_value"
+        assert re_retrieved_doc.metadata["key2"] == 123
+        assert re_retrieved_doc.metadata["key3"] == "new_value"
+
+    def test_update_with_document_id(self, docstore):
+        """Test updating document metadata using a document ID."""
+        # Create and add a document with initial metadata
+        initial_metadata = {"key1": "value1", "key2": 123}
+        doc = Document(media_type="text/plain", state="link", metadata=initial_metadata)
+        doc_id = docstore.add(doc)
+        
+        # Update metadata using just the ID
+        updated_doc = docstore.update(doc_id, key1="updated_value", key3="new_value")
+        
+        # Verify document was updated correctly
+        assert updated_doc.id == doc_id
+        assert updated_doc.state == "link"
+        assert updated_doc.media_type == "text/plain"
+        assert updated_doc.metadata["key1"] == "updated_value"
+        assert updated_doc.metadata["key2"] == 123
+        assert updated_doc.metadata["key3"] == "new_value"
+        
+        # Verify changes persist when retrieved again
+        re_retrieved_doc = docstore.get(id=doc_id)
+        assert re_retrieved_doc.metadata["key1"] == "updated_value"
+        assert re_retrieved_doc.metadata["key2"] == 123
+        assert re_retrieved_doc.metadata["key3"] == "new_value"
+
+    def test_update_nonexistent_document(self, docstore):
+        """Test that updating a non-existent document raises an error."""
+        non_existent_id = str(uuid4())
+        
+        # Attempt to update non-existent document
+        with pytest.raises(ValueError, match=f"Document with ID {non_existent_id} not found in the database"):
+            docstore.update(non_existent_id, key1="value1")
+
+    def test_update_mismatched_document(self, docstore):
+        """Test that updating a document with mismatched properties raises an error."""
+        # Create and add a document
+        doc = Document(media_type="text/plain", state="link", content="original content")
+        doc_id = docstore.add(doc)
+        
+        # Create a modified version of the document with different state/content
+        modified_doc = Document(
+            id=doc_id,
+            media_type="text/plain",
+            state="download",  # Different state
+            content="modified content"  # Different content
+        )
+        
+        # Attempt to update with mismatched document
+        with pytest.raises(ValueError, match="Provided document does not match the document in the database"):
+            docstore.update(modified_doc, key1="value1")
+
 
 if __name__ == "__main__":
     pytest.main()

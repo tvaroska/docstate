@@ -318,6 +318,57 @@ class DocStore:
 
         return all_results
         
+    def update(self, doc: Union[Document, str], **kwargs) -> Document:
+        """
+        Update only the metadata of a document.
+        
+        Args:
+            doc: Either a Document object or a document ID (str)
+            **kwargs: Keyword arguments representing metadata fields to update
+            
+        Returns:
+            Document: The updated document
+            
+        Raises:
+            ValueError: If the document is not found in the database
+            ValueError: If a Document object is provided but doesn't match the one in the database
+        """
+        doc_id = doc.id if isinstance(doc, Document) else doc
+        
+        with self.Session() as session:
+            db_doc = session.query(DocumentModel).filter_by(id=doc_id).first()
+            
+            if not db_doc:
+                raise ValueError(f"Document with ID {doc_id} not found in the database")
+            
+            # If a Document object was provided, verify it matches what's in the database
+            if isinstance(doc, Document):
+                if doc.state != db_doc.state or doc.content != db_doc.content or doc.media_type != db_doc.media_type:
+                    raise ValueError("Provided document does not match the document in the database")
+            
+            # Get the current metadata (initialize to empty dict if None)
+            current_metadata = {} if db_doc.cmetadata is None else db_doc.cmetadata.copy()
+            
+            # Update the metadata with the new values
+            for key, value in kwargs.items():
+                current_metadata[key] = value
+            
+            # Update the database
+            db_doc.cmetadata = current_metadata
+            session.commit()
+            
+            # Return the updated document with the updated metadata
+            return Document.model_validate({
+                "id": db_doc.id,
+                "state": db_doc.state,
+                "content": db_doc.content,
+                "media_type": db_doc.media_type,
+                "url": db_doc.url,
+                "parent_id": db_doc.parent_id,
+                "children": [child.id for child in db_doc.children],
+                "metadata": current_metadata  # Use the locally updated metadata to ensure it's correct
+            })
+    
     async def finish(self, docs: Union[Document, List[Document]]) -> List[Document]:
         """
         Process document(s) through the entire pipeline until all reach a final state.
