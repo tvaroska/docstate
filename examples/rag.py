@@ -2,8 +2,8 @@ from typing import List
 
 import asyncio
 import httpx
-from docstate.document import Document
-from docstate.docstate import DocStore, DocumentType, DocumentState, Transition
+from docstate.document import Document, DocumentState, Transition, DocumentType
+from docstate.docstate import DocStore
 
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_postgres import PGVector
@@ -43,11 +43,13 @@ async def chunk_document(doc: Document) -> List[Document]:
     """Split document into multiple chunks."""
     if doc.media_type != "text/plain":
         raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
+
+    # Import inside the function to allow test mocking
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
     
-
     splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-
     chunks = splitter.split_text(doc.content)
+    
     # Create Document objects for each chunk
     return [
         Document(
@@ -68,11 +70,10 @@ async def embed_document(doc: Document) -> Document:
     if doc.media_type != "text/plain":
         raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
     
-    id = vectorstore.add_texts([doc.content])
-    id = [0]
+    ids = vectorstore.add_texts([doc.content])
 
     return Document(
-        content=str(id[0]),  # Store embedding as string
+        content=str(ids[0]),  # Store embedding as string
         media_type="vector",
         state="embed",
         metadata={
