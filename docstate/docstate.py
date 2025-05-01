@@ -18,7 +18,7 @@ class DocumentModel(Base):
 
     id = Column(String, primary_key=True)
     state = Column(String, nullable=False)
-    content = Column(JSON, nullable=True)
+    content = Column(String, nullable=True)
     media_type = Column(String, default="text/plain")
     url = Column(String, nullable=True)
     parent_id = Column(String, ForeignKey("documents.id"), nullable=True)
