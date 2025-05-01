@@ -1,4 +1,5 @@
-from typing import List, Optional, Union
+import asyncio
+from typing import Generator, List, Optional, Union
 from uuid import uuid4
 
 from sqlalchemy import JSON, Column, ForeignKey, String, create_engine
@@ -47,6 +48,7 @@ class DocStore:
         connection_string: str,
         document_type: Optional[DocumentType] = None,
         error_state: Optional[str] = None,
+        max_concurrent_tasks: int = 5,
     ):
         """
         Initialize the DocStore with a database connection and document type.
@@ -55,12 +57,14 @@ class DocStore:
             connection_string: SQLAlchemy connection string for the database
             document_type: DocumentType defining the state machine for documents
             error_state: Optional custom name for the error state. Defaults to DocStore.ERROR_STATE.
+            max_concurrent_tasks: Maximum number of concurrent document processing tasks. Defaults to 5.
         """
         self.engine = create_engine(connection_string)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
         self.document_type = document_type
         self.error_state = error_state if error_state is not None else self.ERROR_STATE
+        self.max_concurrent_tasks = max_concurrent_tasks
 
     def __enter__(self):
         """Context manager enter method for resource management."""
@@ -293,6 +297,9 @@ class DocStore:
         """
         Process document(s) to their next state according to the document type.
         Accepts either a single Document or a list of Documents.
+        
+        Documents are processed concurrently using asyncio.gather with a configurable
+        limit on the maximum number of concurrent tasks.
 
         Args:
             docs: The Document or List[Document] to process
@@ -306,41 +313,62 @@ class DocStore:
         else:
             docs_to_process = docs
 
-        all_results = []
-        # Process each document sequentially for now. Consider asyncio.gather for concurrency later.
+        # Filter out invalid document types
+        valid_docs = []
         for doc in docs_to_process:
-            # Ensure we are working with a valid Document object
             if not isinstance(doc, Document):
-                # Potentially log a warning or raise an error for invalid input types
                 print(f"Warning: Skipping invalid input type in list: {type(doc)}")
                 continue
+            valid_docs.append(doc)
 
-            try:
-                result = await self._process_single_document(doc)
-                # _process_single_document now returns list of added docs
+        if not valid_docs:
+            return []
+
+        all_results = []
+        
+        # Process documents in batches to control concurrency
+        for i in range(0, len(valid_docs), self.max_concurrent_tasks):
+            batch = valid_docs[i:i + self.max_concurrent_tasks]
+            
+            # Create async tasks for each document in the batch
+            tasks = []
+            
+            # Define the error handling function outside the loop
+            # to avoid closure issues
+            async def process_with_error_handling(document):
+                try:
+                    return await self._process_single_document(document)
+                except ValueError as e:
+                    # Re-raise ValueError exceptions like "Document type not set"
+                    if "Document type not set" in str(e):
+                        raise
+                    # Log error for other ValueError cases
+                    print(f"ValueError processing document {document.id}: {e}")
+                    return None
+                except Exception as e:
+                    # Log error for other exceptions
+                    print(f"Error processing document {document.id}: {e}")
+                    return None
+            
+            # Create tasks for each document
+            for doc in batch:
+                tasks.append(process_with_error_handling(doc))
+            
+            # Process the batch concurrently
+            batch_results = await asyncio.gather(*tasks, return_exceptions=False)
+            
+            # Collect and flatten results
+            for result in batch_results:
+                if result is None:
+                    continue
                 if isinstance(result, list):
                     all_results.extend(result)
-                elif isinstance(
-                    result, Document
-                ):  # Handle case where original doc might be returned
-                    # If the original document is returned (e.g., final state), decide whether to include it.
-                    # For now, we only collect *newly* created documents from transitions.
-                    # If you want to include final state docs, uncomment below:
+                elif isinstance(result, Document):
+                    # If the original document is returned (e.g., final state), 
+                    # we don't include it by default.
+                    # Uncomment below if you want to include final state docs:
                     # all_results.append(result)
                     pass
-            except ValueError as e:
-                # Re-raise ValueError exceptions like "Document type not set"
-                if "Document type not set" in str(e):
-                    raise
-                # Log error for other ValueError cases
-                print(f"ValueError processing document {doc.id}: {e}")
-                # Continue with the next document in the list
-                continue
-            except Exception as e:
-                # Log error for other exceptions
-                print(f"Error processing document {doc.id}: {e}")
-                # Continue with the next document in the list
-                continue
 
         return all_results
 
@@ -405,7 +433,7 @@ class DocStore:
                 }
             )
 
-    def list(self, state: str, leaf: bool = True, **kwargs) -> Document:
+    def list(self, state: str, leaf: bool = True, **kwargs) -> Generator[Document, None, None]:
         """
         Generate documents with the specified state and metadata filters.
 

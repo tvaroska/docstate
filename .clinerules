@@ -151,3 +151,9 @@ flowchart TD
 The format is flexible - focus on capturing valuable insights that help me work more effectively with you and the project. Think of .clinerules as a living document that grows smarter as we work together.
 
 REMEMBER: After every memory reset, I begin completely fresh. The Memory Bank is my only link to previous work. It must be maintained with precision and clarity, as my effectiveness depends entirely on its accuracy.
+
+
+# Tests
+
+Run tests with uv run pytest.
+Don't change tests unless user specificaly asked for it.
