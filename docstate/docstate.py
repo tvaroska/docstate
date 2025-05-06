@@ -8,6 +8,7 @@ from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
 from sqlalchemy.sql import select
 
 from docstate.document import Document, DocumentType
+from docstate.utils import log_document_operation, log_document_processing, log_document_transition
 
 Base = declarative_base()
 
@@ -110,6 +111,9 @@ class DocStore:
                 # Children will be managed separately through relationships
                 session.add(db_doc)
                 session.commit()
+                
+                # Log document creation
+                log_document_operation(operation="create", doc_id=doc.id, details=f"state={doc.state}")
                 return doc.id
 
         # Handle list of documents case
@@ -135,6 +139,15 @@ class DocStore:
                     doc_ids.append(document.id)
 
                 session.commit()
+                
+                # Log each document creation in the batch
+                for i, document in enumerate(doc):
+                    log_document_operation(
+                        operation="create", 
+                        doc_id=document.id, 
+                        details=f"state={document.state} (batch item {i+1}/{len(doc)})"
+                    )
+                
                 return doc_ids
 
     def get(
@@ -215,8 +228,13 @@ class DocStore:
         with self.Session() as session:
             doc = session.query(DocumentModel).filter_by(id=id).first()
             if doc:
+                # Get the state before deleting for logging
+                state = doc.state
                 session.delete(doc)
                 session.commit()
+                
+                # Log document deletion
+                log_document_operation(operation="delete", doc_id=id, details=f"state={state}")
 
     async def _process_single_document(
         self, doc: Document
@@ -235,8 +253,16 @@ class DocStore:
         # Use the first available transition
         transition = transitions[0]
 
+        # Log the transition attempt
+        log_document_transition(
+            from_state=doc.state,
+            to_state=transition.to_state.name,
+            doc_id=doc.id
+        )
+
         try:
             # Process the document
+            log_document_processing(doc_id=doc.id, process_function=transition.process_func.__name__)
             processed_result = await transition.process_func(doc)
 
             results_to_add = []
@@ -266,6 +292,15 @@ class DocStore:
             return added_docs
 
         except Exception as e:
+            # Log the error in transition
+            log_document_transition(
+                from_state=doc.state,
+                to_state=transition.to_state.name,
+                doc_id=doc.id,
+                success=False,
+                error=str(e)
+            )
+            
             # Create an error document
             error_doc = Document(
                 state=self.error_state,
@@ -343,11 +378,23 @@ class DocStore:
                     if "Document type not set" in str(e):
                         raise
                     # Log error for other ValueError cases
-                    print(f"ValueError processing document {document.id}: {e}")
+                    log_document_transition(
+                        from_state=document.state,
+                        to_state="unknown", # Can't determine the target state in this case
+                        doc_id=document.id,
+                        success=False,
+                        error=f"ValueError: {str(e)}"
+                    )
                     return None
                 except Exception as e:
                     # Log error for other exceptions
-                    print(f"Error processing document {document.id}: {e}")
+                    log_document_transition(
+                        from_state=document.state,
+                        to_state="unknown", # Can't determine the target state in this case
+                        doc_id=document.id,
+                        success=False,
+                        error=f"Exception: {str(e)}"
+                    )
                     return None
             
             # Create tasks for each document
@@ -418,6 +465,14 @@ class DocStore:
             # Update the database
             db_doc.cmetadata = current_metadata
             session.commit()
+            
+            # Log the metadata update
+            updated_fields = ", ".join(kwargs.keys())
+            log_document_operation(
+                operation="update", 
+                doc_id=doc_id, 
+                details=f"metadata fields: {updated_fields}"
+            )
 
             # Return the updated document with the updated metadata
             return Document.model_validate(
