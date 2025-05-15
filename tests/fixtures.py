@@ -228,9 +228,10 @@ def mock_splitter():
 
 @pytest.fixture
 def mock_vectorstore():
-    """Return a mock PGVector for testing embed_document."""
-    with patch("langchain_postgres.PGVector") as mock_vectorstore:
+    """Return a mock vector store for testing embed_document."""
+    # Patch FAISS instead of PGVector for SQLite compatibility
+    with patch("langchain_community.vectorstores.faiss.FAISS") as mock_vectorstore:
         mock_vectorstore_instance = MagicMock()
         mock_vectorstore_instance.add_texts.return_value = ["embedding_id"]
-        mock_vectorstore.return_value = mock_vectorstore_instance
+        mock_vectorstore.from_texts.return_value = mock_vectorstore_instance
         yield mock_vectorstore
