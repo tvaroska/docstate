@@ -10,3 +10,7 @@ tasks:
     cmds:
       - uv run pytest
     silent: false
+  tox:
+    cmds:
+      - docker run -v "$(pwd):/home/ciuser/docstate" -e TOX_WORK_DIR=/home/ciuser/.tox multi-python-tox tox --root ./docstate -c ./docstate/tox.ini
+    silent: false
