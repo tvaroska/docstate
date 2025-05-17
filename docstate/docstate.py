@@ -265,31 +265,30 @@ class DocStore:
             log_document_processing(doc_id=doc.id, process_function=transition.process_func.__name__)
             processed_result = await transition.process_func(doc)
 
+            # Collect all results in a list
             results_to_add = []
             if isinstance(processed_result, list):
                 results_to_add.extend(processed_result)
             else:
                 results_to_add.append(processed_result)
 
-            added_docs = []
+            # Set parent_id for all child documents
             for new_doc in results_to_add:
                 new_doc.parent_id = doc.id
-                self.add(new_doc)
-                added_docs.append(new_doc)
 
-                # The parent-child relationship in the database is handled automatically
-                # through the parent_id foreign key. We just need to update the
-                # Pydantic Document's children list for the current session
-                parent = self.get(id=doc.id)
-                if parent and new_doc.id not in parent.children:
-                    parent.add_child(new_doc.id)
+            # Add all documents in a single batch operation
+            if results_to_add:
+                self.add(results_to_add)
 
-                    # Note: We don't need to update the database model's children list
-                    # because the relationship is automatically managed by SQLAlchemy
-                    # through the parent_id foreign key on each child document
+            # Update parent-child relationships
+            parent = self.get(id=doc.id)
+            if parent:
+                for new_doc in results_to_add:
+                    if new_doc.id not in parent.children:
+                        parent.add_child(new_doc.id)
 
             # Return the list of newly created/added documents
-            return added_docs
+            return results_to_add
 
         except Exception as e:
             # Log the error in transition
