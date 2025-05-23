@@ -2,36 +2,16 @@ import asyncio
 from typing import AsyncGenerator, Generator, List, Optional, Union
 from uuid import uuid4
 
-from sqlalchemy import JSON, Column, ForeignKey, String, create_engine, inspect, select as sync_select
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, AsyncAttrs
+from sqlalchemy import create_engine, inspect, select as sync_select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.future import select
-from sqlalchemy.orm import backref, DeclarativeBase, relationship, sessionmaker
+from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm.session import Session
 from sqlalchemy.orm import joinedload
 
+from docstate.database import Base, DocumentModel
 from docstate.document import Document, DocumentType
 from docstate.utils import log_document_operation, log_document_processing, log_document_transition
-
-class Base(AsyncAttrs, DeclarativeBase):
-    pass
-
-class DocumentModel(Base):
-    """SQLAlchemy model for document storage."""
-
-    __tablename__ = "documents"
-
-    id = Column(String, primary_key=True)
-    state = Column(String, nullable=False)
-    content = Column(String, nullable=True)
-    media_type = Column(String, default="text/plain")
-    url = Column(String, nullable=True)
-    parent_id = Column(String, ForeignKey("documents.id"), nullable=True)
-    children = relationship(
-        "DocumentModel",
-        backref=backref("parent", remote_side=[id]),
-        cascade="all, delete-orphan"
-    )
-    cmetadata = Column(JSON, nullable=False, default={})
 
 
 class DocStore:
@@ -77,7 +57,15 @@ class DocStore:
             expire_on_commit=False
         )
 
-        asyncio.run(self.create_db())
+        # Check if we're already in an event loop
+        try:
+            loop = asyncio.get_running_loop()
+            # If we're in an event loop, we can't use asyncio.run()
+            # Use asyncio.create_task instead
+            asyncio.create_task(self.create_db())
+        except RuntimeError:
+            # No running event loop, use asyncio.run()
+            asyncio.run(self.create_db())
         
         self.document_type = document_type
         self.error_state = error_state if error_state is not None else self.ERROR_STATE

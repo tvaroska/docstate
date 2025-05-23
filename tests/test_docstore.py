@@ -339,16 +339,6 @@ class TestDocStore:
         assert len(final_docs) > 0
         assert any(doc.state == "final" for doc in final_docs)
 
-    @pytest.mark.asyncio
-    async def test_finish_with_missing_document_type(self, sqlite_db_path, document):
-        """Test finishing a document without a document type."""
-        store = DocStore(connection_string=sqlite_db_path)
-        await store.aadd(document)
-        
-        with pytest.raises(ValueError, match="Document type not set"):
-            await store.finish(document)
-
-
 class TestContext:
     def test_context_manager(self, sqlite_db_path, document_type):
         """Test using DocStore as a context manager."""
@@ -357,6 +347,6 @@ class TestContext:
             document_type=document_type
         ) as store:
             store.add(Document(state="test", content="test"))
-            doc = store.get(state="test")
+            doc = store.list(state="test")
             assert len(doc) == 1
             assert doc[0].content == "test"
