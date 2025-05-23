@@ -17,7 +17,7 @@ class DocumentModel(Base):
     content = Column(String, nullable=True)
     media_type = Column(String, default="text/plain")
     url = Column(String, nullable=True)
-    parent_id = Column(String, ForeignKey("documents.id"), nullable=True)
+    parent_id = Column(String, ForeignKey("documents.id"), nullable=True, index=True)
     children = relationship(
         "DocumentModel",
         backref=backref("parent", remote_side=[id]),
