@@ -192,7 +192,7 @@ def docstore(sqlite_db_path, document_type):
     
     # Create DocStore instance
     store = DocStore(connection_string=sqlite_db_path, document_type=document_type)
-    
+
     yield store
     
     # Clean up

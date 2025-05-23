@@ -1,17 +1,19 @@
 import asyncio
-from typing import Generator, List, Optional, Union
+from typing import AsyncGenerator, Generator, List, Optional, Union
 from uuid import uuid4
 
-from sqlalchemy import JSON, Column, ForeignKey, String, create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import backref, declarative_base, relationship, sessionmaker
-from sqlalchemy.sql import select
+from sqlalchemy import JSON, Column, ForeignKey, String, create_engine, inspect, select as sync_select
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, AsyncAttrs
+from sqlalchemy.future import select
+from sqlalchemy.orm import backref, DeclarativeBase, relationship, sessionmaker
+from sqlalchemy.orm.session import Session
+from sqlalchemy.orm import joinedload
 
 from docstate.document import Document, DocumentType
 from docstate.utils import log_document_operation, log_document_processing, log_document_transition
 
-Base = declarative_base()
-
+class Base(AsyncAttrs, DeclarativeBase):
+    pass
 
 class DocumentModel(Base):
     """SQLAlchemy model for document storage."""
@@ -27,7 +29,7 @@ class DocumentModel(Base):
     children = relationship(
         "DocumentModel",
         backref=backref("parent", remote_side=[id]),
-        cascade="all, delete-orphan",
+        cascade="all, delete-orphan"
     )
     cmetadata = Column(JSON, nullable=False, default={})
 
@@ -60,12 +62,30 @@ class DocStore:
             error_state: Optional custom name for the error state. Defaults to DocStore.ERROR_STATE.
             max_concurrent_tasks: Maximum number of concurrent document processing tasks. Defaults to 5.
         """
-        self.engine = create_engine(connection_string)
-        Base.metadata.create_all(self.engine)
-        self.Session = sessionmaker(bind=self.engine)
+        # Create async engine if connection string is SQLite (convert to aiosqlite)
+        # or already async compatible
+        if connection_string.startswith('sqlite'):
+            async_connection_string = connection_string.replace('sqlite', 'sqlite+aiosqlite', 1)
+        else:
+            # For other databases, user needs to provide proper async driver
+            async_connection_string = connection_string
+            
+        self.async_engine = create_async_engine(async_connection_string)
+        self.AsyncSession = sessionmaker(
+            bind=self.async_engine, 
+            class_=AsyncSession, 
+            expire_on_commit=False
+        )
+
+        asyncio.run(self.create_db())
+        
         self.document_type = document_type
         self.error_state = error_state if error_state is not None else self.ERROR_STATE
         self.max_concurrent_tasks = max_concurrent_tasks
+
+    async def create_db(self):
+        async with self.async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)        
 
     def __enter__(self):
         """Context manager enter method for resource management."""
@@ -75,14 +95,33 @@ class DocStore:
         """Context manager exit method to ensure connections are closed."""
         if hasattr(self, "engine"):
             self.engine.dispose()
+        if hasattr(self, "async_engine"):
+            # We can't await in __exit__, so we'll use run_until_complete
+            try:
+                loop = asyncio.get_event_loop()
+                if not loop.is_closed():
+                    loop.run_until_complete(self.async_engine.dispose())
+            except (RuntimeError, ValueError):
+                # If there's no event loop or it's closed, just log a message
+                # In production, proper logging would be used
+                print("Warning: Could not properly dispose async engine in __exit__")
+    
+    async def __aenter__(self):
+        """Async context manager enter method."""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit method to ensure connections are closed."""
+        if hasattr(self, "async_engine"):
+            await self.async_engine.dispose()
 
     def set_document_type(self, document_type: DocumentType) -> None:
         """Set the document type for this DocStore."""
         self.document_type = document_type
-
-    def add(self, doc: Union[Document, List[Document]]) -> Union[str, List[str]]:
+    
+    async def aadd(self, doc: Union[Document, List[Document]]) -> Union[str, List[str]]:
         """
-        Add a document or list of documents to the store and return the ID(s).
+        Async version: Add a document or list of documents to the store and return the ID(s).
 
         If any document ID is None, a UUID4 will be automatically generated.
 
@@ -97,8 +136,8 @@ class DocStore:
             # Generate UUID4 if ID is None
             if doc.id is None:
                 doc.id = str(uuid4())
-
-            with self.Session() as session:
+            
+            async with self.AsyncSession() as session:
                 db_doc = DocumentModel(
                     id=doc.id,
                     state=doc.state,
@@ -110,16 +149,16 @@ class DocStore:
                 )
                 # Children will be managed separately through relationships
                 session.add(db_doc)
-                session.commit()
+                await session.commit()
                 
                 # Log document creation
                 log_document_operation(operation="create", doc_id=doc.id, details=f"state={doc.state}")
                 return doc.id
-
+        
         # Handle list of documents case
         else:
             doc_ids = []
-            with self.Session() as session:
+            async with self.AsyncSession() as session:
                 for document in doc:
                     # Generate UUID4 if ID is None
                     if document.id is None:
@@ -138,7 +177,7 @@ class DocStore:
                     session.add(db_doc)
                     doc_ids.append(document.id)
 
-                session.commit()
+                await session.commit()
                 
                 # Log each document creation in the batch
                 for i, document in enumerate(doc):
@@ -150,73 +189,114 @@ class DocStore:
                 
                 return doc_ids
 
-    def get(
-        self, id: Optional[str] = None, state: Optional[str] = None
+    def add(self, doc: Union[Document, List[Document]]) -> Union[str, List[str]]:
+        """
+        Add a document or list of documents to the store and return the ID(s).
+
+        If any document ID is None, a UUID4 will be automatically generated.
+
+        Args:
+            doc: The Document or List[Document] to add
+
+        Returns:
+            Union[str, List[str]]: The document ID or list of document IDs
+        """
+        return asyncio.run(self.aadd(doc))
+
+    async def aget(
+        self, id: str
     ) -> Union[Document, List[Document], None]:
         """
-        Retrieve document(s) by ID or state.
+        Async version: Retrieve document(s) by ID or all documents if no ID is provided.
 
         Args:
             id: Document ID to retrieve
-            state: Document state to filter by
 
         Returns:
             Document, List[Document], or None if no matching documents found
         """
-        with self.Session() as session:
+        async with self.AsyncSession() as session:
             if id:
-                result = session.query(DocumentModel).filter_by(id=id).first()
-                if result is None:
+                # Use SQLAlchemy 2.0 style query with select()
+                stmt = select(DocumentModel).filter_by(id=id)
+                result = await session.execute(stmt)
+                db_doc = result.scalars().first()
+                
+                if db_doc is None:
                     return None
+                
                 # Extract child IDs from the relationship
-                child_ids = [child.id for child in result.children]
+                await session.refresh(db_doc, ['children'])
+                child_ids = [child.id for child in db_doc.children]
                 return Document.model_validate(
                     {
-                        "id": result.id,
-                        "state": result.state,
-                        "content": result.content,
-                        "media_type": result.media_type,
-                        "url": result.url,
-                        "parent_id": result.parent_id,
+                        "id": db_doc.id,
+                        "state": db_doc.state,
+                        "content": db_doc.content,
+                        "media_type": db_doc.media_type,
+                        "url": db_doc.url,
+                        "parent_id": db_doc.parent_id,
                         "children": child_ids,
-                        "metadata": result.cmetadata,
+                        "metadata": db_doc.cmetadata,
                     }
                 )
-            elif state:
-                results = session.query(DocumentModel).filter_by(state=state).all()
-                return [
-                    Document.model_validate(
-                        {
-                            "id": result.id,
-                            "state": result.state,
-                            "content": result.content,
-                            "media_type": result.media_type,
-                            "url": result.url,
-                            "parent_id": result.parent_id,
-                            "children": [child.id for child in result.children],
-                            "metadata": result.cmetadata,
-                        }
-                    )
-                    for result in results
-                ]
             else:
-                # Return all documents if no filters specified
-                results = session.query(DocumentModel).all()
+                # Return all documents if no ID specified
+                stmt = select(DocumentModel)
+                result = await session.execute(stmt)
+                db_docs = result.scalars().all()
+                
                 return [
                     Document.model_validate(
                         {
-                            "id": result.id,
-                            "state": result.state,
-                            "content": result.content,
-                            "media_type": result.media_type,
-                            "url": result.url,
-                            "parent_id": result.parent_id,
-                            "children": [child.id for child in result.children],
-                            "metadata": result.cmetadata,
+                            "id": db_doc.id,
+                            "state": db_doc.state,
+                            "content": db_doc.content,
+                            "media_type": db_doc.media_type,
+                            "url": db_doc.url,
+                            "parent_id": db_doc.parent_id,
+                            "children": [child.id for child in db_doc.children],
+                            "metadata": db_doc.cmetadata,
                         }
                     )
-                    for result in results
+                    for db_doc in db_docs
                 ]
+                
+    def get(
+        self, id: str
+    ) -> Union[Document, List[Document], None]:
+        """
+        Retrieve document(s) by ID or all documents if no ID is provided.
+
+        Args:
+            id: Document ID to retrieve
+
+        Returns:
+            Document, List[Document], or None if no matching documents found
+        """
+        return asyncio.run(self.aget(id))
+
+    async def adelete(self, id: str) -> None:
+        """
+        Async version: Delete a document from the store.
+
+        Args:
+            id: ID of the document to delete
+        """
+        async with self.AsyncSession() as session:
+            # Use SQLAlchemy 2.0 style query
+            stmt = select(DocumentModel).filter_by(id=id)
+            result = await session.execute(stmt)
+            doc = result.scalars().first()
+            
+            if doc:
+                # Get the state before deleting for logging
+                state = doc.state
+                await session.delete(doc)
+                await session.commit()
+                
+                # Log document deletion
+                log_document_operation(operation="delete", doc_id=id, details=f"state={state}")
 
     def delete(self, id: str) -> None:
         """
@@ -225,16 +305,7 @@ class DocStore:
         Args:
             id: ID of the document to delete
         """
-        with self.Session() as session:
-            doc = session.query(DocumentModel).filter_by(id=id).first()
-            if doc:
-                # Get the state before deleting for logging
-                state = doc.state
-                session.delete(doc)
-                session.commit()
-                
-                # Log document deletion
-                log_document_operation(operation="delete", doc_id=id, details=f"state={state}")
+        return asyncio.run(self.adelete(id))
 
     async def _process_single_document(
         self, doc: Document
@@ -278,10 +349,10 @@ class DocStore:
 
             # Add all documents in a single batch operation
             if results_to_add:
-                self.add(results_to_add)
+                await self.aadd(results_to_add)
 
             # Update parent-child relationships
-            parent = self.get(id=doc.id)
+            parent = await self.aget(id=doc.id)
             if parent:
                 for new_doc in results_to_add:
                     if new_doc.id not in parent.children:
@@ -317,10 +388,10 @@ class DocStore:
             )
 
             # Add the error document to the store
-            self.add(error_doc)
+            await self.aadd(error_doc)
 
             # Update the parent document's children list
-            parent = self.get(id=doc.id)
+            parent = await self.aget(id=doc.id)
             if parent and error_doc.id not in parent.children:
                 parent.add_child(error_doc.id)
 
@@ -418,9 +489,9 @@ class DocStore:
 
         return all_results
 
-    def update(self, doc: Union[Document, str], **kwargs) -> Document:
+    async def aupdate(self, doc: Union[Document, str], **kwargs) -> Document:
         """
-        Update only the metadata of a document.
+        Async version: Update only the metadata of a document.
 
         Args:
             doc: Either a Document object or a document ID (str)
@@ -435,8 +506,11 @@ class DocStore:
         """
         doc_id = doc.id if isinstance(doc, Document) else doc
 
-        with self.Session() as session:
-            db_doc = session.query(DocumentModel).filter_by(id=doc_id).first()
+        async with self.AsyncSession() as session:
+            # Use SQLAlchemy 2.0 style query
+            stmt = select(DocumentModel).filter_by(id=doc_id)
+            result = await session.execute(stmt)
+            db_doc = result.scalars().first()
 
             if not db_doc:
                 raise ValueError(f"Document with ID {doc_id} not found in the database")
@@ -453,6 +527,7 @@ class DocStore:
                     )
 
             # Get the current metadata (initialize to empty dict if None)
+            await session.refresh(db_doc, ['cmetadata'])
             current_metadata = (
                 {} if db_doc.cmetadata is None else db_doc.cmetadata.copy()
             )
@@ -463,7 +538,7 @@ class DocStore:
 
             # Update the database
             db_doc.cmetadata = current_metadata
-            session.commit()
+            await session.commit()
             
             # Log the metadata update
             updated_fields = ", ".join(kwargs.keys())
@@ -474,6 +549,7 @@ class DocStore:
             )
 
             # Return the updated document with the updated metadata
+            await session.refresh(db_doc, ['children'])
             return Document.model_validate(
                 {
                     "id": db_doc.id,
@@ -486,68 +562,103 @@ class DocStore:
                     "metadata": current_metadata,  # Use the locally updated metadata to ensure it's correct
                 }
             )
-
-    def list(self, state: str, leaf: bool = True, **kwargs) -> Generator[Document, None, None]:
+            
+    def update(self, doc: Union[Document, str], **kwargs) -> Document:
         """
-        Generate documents with the specified state and metadata filters.
+        Update only the metadata of a document.
+
+        Args:
+            doc: Either a Document object or a document ID (str)
+            **kwargs: Keyword arguments representing metadata fields to update
+
+        Returns:
+            Document: The updated document
+
+        Raises:
+            ValueError: If the document is not found in the database
+            ValueError: If a Document object is provided but doesn't match the one in the database
+        """
+        return asyncio.run(self.aupdate(doc, **kwargs))
+
+    async def alist(self, state: str, leaf: bool = True, **kwargs) -> List[Document]:
+        """
+        Async version: Return a list of documents with the specified state and metadata filters.
 
         Args:
             state: Document state to filter by (required)
             leaf: If True, only returns documents without children (default: True)
             **kwargs: Optional metadata key/value pairs to filter by
 
-        Yields:
-            Document: Documents matching the specified criteria
+        Returns:
+            List[Document]: List of documents matching the specified criteria
         """
-        with self.Session() as session:
-            # Start with a query for the specified state
-            query = session.query(DocumentModel).filter_by(state=state)
-
-            # Get all documents with the specified state first
-            results = query.all()
+        documents = []
+        async with self.AsyncSession() as session:
+            # Use SQLAlchemy 2.0 style query
+            stmt = select(DocumentModel).filter_by(state=state)
+            result = await session.execute(stmt)
+            results = result.scalars().all()
 
             # Filter results based on metadata and leaf parameter
-            for result in results:
+            for db_doc in results:
+                await session.refresh(db_doc, ['children'])
+                await session.refresh(db_doc, ['cmetadata'])
                 # Skip if we want leaf nodes only and this document has children
-                if leaf and result.children:
+                if leaf and db_doc.children:
                     continue
 
                 # If there are metadata filters, check them
                 if kwargs:
                     # Check if document's metadata matches all provided kwargs
-                    if result.cmetadata is not None:  # Make sure metadata exists
+                    if db_doc.cmetadata is not None:  # Make sure metadata exists
                         # Check if all conditions match
                         if all(
-                            key in result.cmetadata and result.cmetadata[key] == value
+                            key in db_doc.cmetadata and db_doc.cmetadata[key] == value
                             for key, value in kwargs.items()
                         ):
-                            # Build and yield document
-                            yield Document.model_validate(
+                            # Build and add document to list
+                            documents.append(Document.model_validate(
                                 {
-                                    "id": result.id,
-                                    "state": result.state,
-                                    "content": result.content,
-                                    "media_type": result.media_type,
-                                    "url": result.url,
-                                    "parent_id": result.parent_id,
-                                    "children": [child.id for child in result.children],
-                                    "metadata": result.cmetadata,
+                                    "id": db_doc.id,
+                                    "state": db_doc.state,
+                                    "content": db_doc.content,
+                                    "media_type": db_doc.media_type,
+                                    "url": db_doc.url,
+                                    "parent_id": db_doc.parent_id,
+                                    "children": [child.id for child in db_doc.children],
+                                    "metadata": db_doc.cmetadata,
                                 }
-                            )
+                            ))
                 else:
-                    # No metadata filters, just yield document if it passes leaf check
-                    yield Document.model_validate(
+                    # No metadata filters, just add document if it passes leaf check
+                    documents.append(Document.model_validate(
                         {
-                            "id": result.id,
-                            "state": result.state,
-                            "content": result.content,
-                            "media_type": result.media_type,
-                            "url": result.url,
-                            "parent_id": result.parent_id,
-                            "children": [child.id for child in result.children],
-                            "metadata": result.cmetadata,
+                            "id": db_doc.id,
+                            "state": db_doc.state,
+                            "content": db_doc.content,
+                            "media_type": db_doc.media_type,
+                            "url": db_doc.url,
+                            "parent_id": db_doc.parent_id,
+                            "children": [child.id for child in db_doc.children],
+                            "metadata": db_doc.cmetadata,
                         }
-                    )
+                    ))
+                    
+        return documents
+
+    def list(self, state: str, leaf: bool = True, **kwargs) -> List[Document]:
+        """
+        Return a list of documents with the specified state and metadata filters.
+
+        Args:
+            state: Document state to filter by (required)
+            leaf: If True, only returns documents without children (default: True)
+            **kwargs: Optional metadata key/value pairs to filter by
+
+        Returns:
+            List[Document]: List of documents matching the specified criteria
+        """
+        return asyncio.run(self.alist(state, leaf, **kwargs))
 
     async def finish(self, docs: Union[Document, List[Document]]) -> List[Document]:
         """
@@ -577,9 +688,9 @@ class DocStore:
         # Add documents to database if they don't exist already
         for doc in docs_to_process:
             # Check if document exists in database
-            existing_doc = self.get(id=doc.id)
+            existing_doc = await self.aget(id=doc.id)
             if not existing_doc:
-                self.add(doc)
+                await self.aadd(doc)
 
         # Get final states from document type
         final_states = self.document_type.final
@@ -614,13 +725,30 @@ class DocStore:
             # Update documents to process with the new documents
             documents_to_process = next_documents
 
-        # Collect all documents in final states
-        for state_name in final_state_names:
-            docs_in_state = self.get(state=state_name)
-            if docs_in_state:
-                if isinstance(docs_in_state, list):
-                    final_documents.extend(docs_in_state)
-                else:
-                    final_documents.append(docs_in_state)
+        # Collect all documents in final states by querying directly
+        async with self.AsyncSession() as session:
+            final_documents = []
+            for state_name in final_state_names:
+                # Use SQLAlchemy 2.0 style query for each final state
+                stmt = select(DocumentModel).filter_by(state=state_name)
+                result = await session.execute(stmt)
+                db_docs = result.scalars().all()
+                
+                # Convert DB models to Document objects
+                for db_doc in db_docs:
+                    await session.refresh(db_doc, ['children'])
+                    doc = Document.model_validate(
+                        {
+                            "id": db_doc.id,
+                            "state": db_doc.state,
+                            "content": db_doc.content,
+                            "media_type": db_doc.media_type,
+                            "url": db_doc.url,
+                            "parent_id": db_doc.parent_id,
+                            "children": [child.id for child in db_doc.children],
+                            "metadata": db_doc.cmetadata,
+                        }
+                    )
+                    final_documents.append(doc)
 
         return final_documents

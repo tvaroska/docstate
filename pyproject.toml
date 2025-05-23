@@ -68,4 +68,6 @@ dev = [
     "langchain-postgres>=0.0.14",
     "psycopg2-binary>=2.9.10",
     "langchain-google-vertexai>=2.0.20",
+    "aiosqlite>=0.21.0",
+    "asyncpg>=0.30.0",
 ]
