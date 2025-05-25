@@ -11,7 +11,7 @@ from sqlalchemy.orm import joinedload
 
 from docstate.database import Base, DocumentModel
 from docstate.document import Document, DocumentType
-from docstate.utils import log_document_operation, log_document_processing, log_document_transition
+from docstate.utils import log_document_operation, log_document_processing, log_document_transition, run_async
 
 
 class DocStore:
@@ -189,7 +189,8 @@ class DocStore:
         Returns:
             Union[str, List[str]]: The document ID or list of document IDs
         """
-        return asyncio.run(self.aadd(doc))
+        # Use the run_async utility function to safely execute the async function
+        return run_async(self.aadd, doc)
 
     async def aget(
         self, id: str
@@ -262,7 +263,8 @@ class DocStore:
         Returns:
             Document, List[Document], or None if no matching documents found
         """
-        return asyncio.run(self.aget(id))
+        # Use the run_async utility function to safely execute the async function
+        return run_async(self.aget, id)
 
     async def adelete(self, id: str) -> None:
         """
@@ -293,7 +295,7 @@ class DocStore:
         Args:
             id: ID of the document to delete
         """
-        return asyncio.run(self.adelete(id))
+        return run_async(self.adelete, id)
 
     async def _process_single_document(
         self, doc: Document
@@ -566,7 +568,7 @@ class DocStore:
             ValueError: If the document is not found in the database
             ValueError: If a Document object is provided but doesn't match the one in the database
         """
-        return asyncio.run(self.aupdate(doc, **kwargs))
+        return run_async(self.aupdate, doc, **kwargs)
 
     async def alist(self, state: str, leaf: bool = True, **kwargs) -> List[Document]:
         """
@@ -646,11 +648,11 @@ class DocStore:
         Returns:
             List[Document]: List of documents matching the specified criteria
         """
-        return asyncio.run(self.alist(state, leaf, **kwargs))
+        return run_async(self.alist, state, leaf, **kwargs)
 
-    async def finish(self, docs: Union[Document, List[Document]]) -> List[Document]:
+    async def afinish(self, docs: Union[Document, List[Document]]) -> List[Document]:
         """
-        Process document(s) through the entire pipeline until all reach a final state.
+        Async version: Process document(s) through the entire pipeline until all reach a final state.
         A final state is defined as a state with no outgoing transitions.
 
         This method will:
@@ -740,3 +742,21 @@ class DocStore:
                     final_documents.append(doc)
 
         return final_documents
+        
+    def finish(self, docs: Union[Document, List[Document]]) -> List[Document]:
+        """
+        Process document(s) through the entire pipeline until all reach a final state.
+        A final state is defined as a state with no outgoing transitions.
+
+        This method will:
+        1. Add document(s) to the database if they don't exist yet
+        2. Repeatedly call next() until all documents are in final states
+        3. Return all documents that are in final states
+
+        Args:
+            docs: The Document or List[Document] to process to completion
+
+        Returns:
+            List[Document]: A list of all documents that reached a final state
+        """
+        return run_async(self.afinish, docs)

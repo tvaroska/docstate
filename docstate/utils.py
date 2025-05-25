@@ -1,5 +1,6 @@
 import logging
 import sys
+import asyncio
 from datetime import datetime
 
 # Create logger for the docstate module
@@ -91,3 +92,46 @@ def log_document_operation(operation, doc_id, details=None):
         message += f" | Details: {details}"
     
     docstate_logger.info(message)
+
+def run_async(async_func, *args, **kwargs):
+    """
+    Run an asynchronous function synchronously.
+    
+    This utility function allows calling async functions from synchronous code.
+    It handles creating or getting an event loop as needed.
+    
+    Args:
+        async_func: The asynchronous function to run.
+        *args: Positional arguments to pass to the async function.
+        **kwargs: Keyword arguments to pass to the async function.
+        
+    Returns:
+        The return value of the async function.
+        
+    Raises:
+        Any exception that the async function raises.
+    """
+    try:
+        # Get the current event loop or create a new one
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # If there's no event loop in the current thread, create one
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # If the loop is closed, create a new one
+        if loop.is_closed():
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+        
+        # If the loop is already running, use run_coroutine_threadsafe
+        if loop.is_running():
+            future = asyncio.run_coroutine_threadsafe(async_func(*args, **kwargs), loop)
+            return future.result()
+        else:
+            # Otherwise use run_until_complete
+            return loop.run_until_complete(async_func(*args, **kwargs))
+    except Exception as e:
+        docstate_logger.error(f"Error running async function {async_func.__name__}: {str(e)}")
+        raise
