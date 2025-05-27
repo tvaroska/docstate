@@ -4,8 +4,8 @@
 
 ### Core Technologies
 - **Python 3.8+**: Primary implementation language
-- **SQLAlchemy**: ORM for database interactions with SQLite and PostgreSQL backends
-- **Async IO**: Python's asynchronous programming framework for non-blocking operations
+- **SQLAlchemy with Async Support**: ORM for database interactions with SQLite and PostgreSQL backends
+- **Asyncio**: Python's asynchronous programming framework for non-blocking operations
 - **Pydantic**: Provides BaseModel for data validation, serialization, and type safety
 - **Type Hints**: Extensive use of Python type annotations for better code quality
 - **httpx**: Asynchronous HTTP client for document downloading
@@ -20,7 +20,11 @@
 - SQLite and PostgreSQL databases for development and testing
 - Type checking with mypy is supported through type annotations
 - Project structure:
-  - `docstate/` - Core library code (document.py, docstate.py)
+  - `docstate/` - Core library code
+    - `document.py` - Document, DocumentState, DocumentType, and Transition classes
+    - `docstate.py` - AsyncDocStore implementation
+    - `database.py` - SQLAlchemy models
+    - `utils.py` - Utility functions and decorators
   - `examples/` - Example implementations like RAG
   - `tests/` - Comprehensive test suite
 
@@ -28,9 +32,10 @@
 1. **Async Compatibility**: All processing functions are implemented as async functions
 2. **State Flow Integrity**: Documents must follow the defined state transitions in the DocumentType
 3. **Database Compatibility**: Supports both SQLite and PostgreSQL backends via SQLAlchemy
-4. **Memory Efficiency**: The chunking approach allows processing large documents in smaller pieces
+4. **Memory Efficiency**: Streaming support for handling large documents
 5. **Vector Database Integration**: Using PGVector and VertexAI for embeddings
 6. **Parent-Child Relationships**: Must maintain document lineage throughout transformations
+7. **Performance Considerations**: Optimized for high-volume document processing
 
 ## Technical Interfaces
 
@@ -57,28 +62,62 @@ class Document(BaseModel):
     def has_children(self) -> bool: ...
     
     def add_child(self, child_id: str) -> None: ...
+    
+    def add_children(self, child_ids: List[str]) -> None: ...
 ```
 
-### DocStore Interface
+### AsyncDocStore Interface
 ```python
-class DocStore:
-    def __init__(self, connection_string: str, document_type: Optional[DocumentType] = None, error_state: Optional[str] = None): ...
+class AsyncDocStore:
+    def __init__(
+        self,
+        connection_string: str,
+        document_type: Optional[DocumentType] = None,
+        error_state: Optional[str] = None,
+        max_concurrency: int = 10,
+        pool_size: int = 5,
+        max_overflow: int = 10,
+        pool_timeout: int = 30,
+        pool_recycle: int = 1800,
+        echo: bool = False,
+    ): ...
+    
+    async def initialize(self): ...
+    
+    async def dispose(self): ...
     
     def set_document_type(self, document_type: DocumentType) -> None: ...
     
-    def add(self, doc: Union[Document, List[Document]]) -> Union[str, List[str]]: ...
+    @property
+    async def final_state_names(self) -> List[str]: ...
     
-    def get(self, id: Optional[str] = None, state: Optional[str] = None) -> Union[Document, List[Document], None]: ...
+    async def add(self, doc: Union[Document, List[Document]]) -> Union[str, List[str]]: ...
     
-    def delete(self, id: str) -> None: ...
+    async def get(
+        self, id: Optional[str] = None, state: Optional[str] = None, include_content: bool = True
+    ) -> Union[Document, List[Document], None]: ...
     
-    def update(self, doc: Union[Document, str], **kwargs) -> Document: ...
+    async def get_batch(self, ids: List[str]) -> List[Document]: ...
     
-    def list(self, state: str, leaf: bool = True, **kwargs) -> Document: ...
+    async def delete(self, id: str) -> None: ...
+    
+    async def update(self, doc: Union[Document, str], **kwargs) -> Document: ...
     
     async def next(self, docs: Union[Document, List[Document]]) -> List[Document]: ...
     
+    async def list(
+        self, 
+        state: str, 
+        leaf: bool = True, 
+        include_content: bool = True,
+        **kwargs
+    ) -> List[Document]: ...
+    
     async def finish(self, docs: Union[Document, List[Document]]) -> List[Document]: ...
+    
+    async def stream_content(self, doc_id: str, chunk_size: int = 1024) -> AsyncGenerator[str, None]: ...
+    
+    async def count(self, state: Optional[str] = None) -> int: ...
 ```
 
 ### State Machine Components
@@ -89,6 +128,9 @@ class DocumentState(BaseModel):
     def __eq__(self, other): ...
     
     def __hash__(self): ...
+    
+    @lru_cache(maxsize=128)
+    def __str__(self) -> str: ...
 
 class Transition(BaseModel):
     from_state: DocumentState
@@ -98,64 +140,71 @@ class Transition(BaseModel):
     model_config = {
         "arbitrary_types_allowed": True
     }
+    
+    @model_validator(mode='after')
+    def validate_process_func(self) -> 'Transition': ...
 
 class DocumentType(BaseModel):
     states: List[DocumentState]
     transitions: List[Transition]
+    transition_cache: Dict[str, List[Transition]] = Field(default_factory=dict, exclude=True)
+    final_states_cache: Optional[List[DocumentState]] = Field(default=None, exclude=True)
     
     @property
-    def final(self) -> List[DocumentState]:
-        """Return list of final states (states with no outgoing transitions)"""
-        # A final state is one that has no outgoing transitions
-        states_with_transitions = {t.from_state for t in self.transitions}
-        return [state for state in self.states if state not in states_with_transitions]
+    def final(self) -> List[DocumentState]: ...
     
     def get_transition(self, from_state: Union[DocumentState, str]) -> List[Transition]: ...
+    
+    @model_validator(mode='after')
+    def validate_states_and_transitions(self) -> 'DocumentType': ...
     
     model_config = {
         "arbitrary_types_allowed": True
     }
 ```
 
-### Processing Functions in RAG Example
+### Processing Functions Pattern
 
 ```python
 async def download_document(doc: Document) -> Document:
-    """Download content of url."""
+    """Download content from a URL asynchronously."""
     if not doc.url:
-        raise ValueError(f"Expected url, got '{doc.media_type}'")
+        raise ValueError(f"Expected url for document with ID {doc.id}")
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
         try:
             response = await client.get(doc.url)
-            response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
+            response.raise_for_status()
             content = response.text
         except httpx.RequestError as exc:
-            raise RuntimeError(f"An error occurred while requesting {exc.request.url!r}: {exc}") from exc
+            raise RuntimeError(f"Request error for {doc.url}: {exc}")
         except httpx.HTTPStatusError as exc:
-            raise RuntimeError(f"Error response {exc.response.status_code} while requesting {exc.request.url!r}: {exc.response.text}") from exc
+            raise RuntimeError(f"HTTP error {exc.response.status_code} for {doc.url}: {exc.response.text}")
 
     return Document(
         content=content,
-        media_type="text/plain",  # Assuming downloaded content is text
+        media_type="text/plain",
         state="download",
-        metadata={"source_url": doc.content}
+        parent_id=doc.id,
+        metadata={
+            "source_url": doc.url,
+            "status_code": response.status_code,
+            "content_type": response.headers.get("content-type", "text/plain"),
+            "content_length": len(content)
+        }
     )
 
 async def chunk_document(doc: Document) -> List[Document]:
     """Split document into multiple chunks."""
-    if doc.media_type != "text/plain":
-        raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
+    # Implementation logic for chunking
+    chunks = []  # Chunking logic here
     
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    chunks = splitter.split_text(doc.content)
-    
-    # Create Document objects for each chunk
     return [
         Document(
             content=chunk,
             media_type="text/plain",
             state="chunk",
+            parent_id=doc.id,
             metadata={
                 **doc.metadata,
                 "chunk_index": i,
@@ -167,113 +216,119 @@ async def chunk_document(doc: Document) -> List[Document]:
 
 async def embed_document(doc: Document) -> Document:
     """Create a vector embedding for the document."""
-    if doc.media_type != "text/plain":
-        raise ValueError(f"Expected media_type 'text/plain', got '{doc.media_type}'")
+    # Implementation for embedding
     
-    id = vectorstore.add_texts([doc.content])
-    id = [0]
-
     return Document(
-        content=str(id[0]),  # Store embedding as string
-        media_type="vector",
+        content=str(embedding),  # Store embedding as string
+        media_type="application/vector",
         state="embed",
+        parent_id=doc.id,
         metadata={
             **doc.metadata,
-            "vector_dimensions": 1,
-            "embedding_method": "test_hash"
+            "vector_dimensions": len(embedding),
+            "embedding_method": "method_name"
         }
     )
 ```
 
 ### SQLAlchemy Model
 ```python
+class Base(AsyncAttrs, DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
+    pass
+
 class DocumentModel(Base):
     """SQLAlchemy model for document storage."""
-    __tablename__ = 'documents'
-    
+    __tablename__ = "documents"
+
     id = Column(String, primary_key=True)
-    state = Column(String, nullable=False)
-    content = Column(JSON, nullable=True)
-    media_type = Column(String, default='text/plain')
-    url = Column(String, nullable=True)
-    parent_id = Column(String, ForeignKey('documents.id'), nullable=True)
-    children = relationship("DocumentModel", backref=backref("parent", remote_side=[id]), cascade="all, delete-orphan")
+    state = Column(String, nullable=False, index=True)
+    content = Column(String, nullable=True)
+    media_type = Column(String, default="text/plain", index=True)
+    url = Column(String, nullable=True, index=True)
+    parent_id = Column(String, ForeignKey("documents.id"), nullable=True, index=True)
+    
+    children = relationship(
+        "DocumentModel",
+        backref=backref("parent", remote_side=[id], lazy='selectin'),
+        cascade="all, delete-orphan",
+        lazy='selectin'
+    )
+    
     cmetadata = Column(JSON, nullable=False, default={})
+    
+    __table_args__ = (
+        Index('idx_state_media_type', 'state', 'media_type'),
+        Index('idx_parent_state', 'parent_id', 'state'),
+    )
+```
+
+### Utility Functions
+```python
+@async_timed()
+def timed_function(): ...
+
+async def gather_with_concurrency(n, *tasks): ...
+
+def configure_logging(level=logging.INFO, enable_stdout=True, log_file=None): ...
+
+def log_document_transition(from_state, to_state, doc_id, success=True, error=None): ...
+
+def log_document_processing(doc_id, process_function, start_time=None): ...
+
+def log_document_operation(operation, doc_id, details=None): ...
 ```
 
 ### RAG Example Usage
 ```python
-# Import the necessary components
-from typing import List
-import asyncio
-import httpx
-from docstate.document import Document
-from docstate.docstate import DocStore, DocumentType, DocumentState, Transition
-
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_postgres import PGVector
-from langchain_google_vertexai import VertexAIEmbeddings
-
-# Database connection string
-DB = 'postgresql://postgres:postgres@localhost/postgres'
-
-# Initialize embeddings and vector store
-embeddings = VertexAIEmbeddings(model="text-embedding-004")
-vectorstore = PGVector(
-    connection=DB,
-    embeddings=embeddings
-)
-
-# Define document states and transitions
+# Define document states
 link = DocumentState(name="link")
 download = DocumentState(name="download")
-chunk = DocumentState(name="chunk")
+chunk = DocumentState(name="chunk") 
 embed = DocumentState(name="embed")
 
+# Define transitions between states with async processing functions
 transitions = [
     Transition(from_state=link, to_state=download, process_func=download_document),
     Transition(from_state=download, to_state=chunk, process_func=chunk_document),
     Transition(from_state=chunk, to_state=embed, process_func=embed_document),
 ]
 
-doctype = DocumentType(
+# Create document type with states and transitions
+doc_type = DocumentType(
     states=[link, download, chunk, embed],
     transitions=transitions
 )
 
-docstore = DocStore(connection_string=DB, document_type=doctype)
-
-# Process a document through the entire pipeline with error handling
-doc = Document(
-    url='https://docs.pydantic.dev/latest/llms.txt',
-    state='link'
+# Create AsyncDocStore with SQLite database
+async_docstore = AsyncDocStore(
+    connection_string="sqlite:///rag_example.db",
+    document_type=doc_type,
+    max_concurrency=5  # Process up to 5 documents in parallel
 )
 
-await docstore.finish(doc)
+# Initialize the database
+await async_docstore.initialize()
 
-# Process a document with an invalid URL to demonstrate error handling
-error_doc = Document(
-    url='htt://docs.pydantic.dev/latest/llms.txt',
-    state='link'
-)
+# Create sample documents to process
+sample_docs = [
+    Document(
+        url="https://docs.python.org/3/library/asyncio.html",
+        state="link"
+    ),
+    Document(
+        url="https://peps.python.org/pep-0492/",
+        state="link"
+    )
+]
 
-await docstore.finish(error_doc)
+# Add documents to the store
+doc_ids = await async_docstore.add(sample_docs)
 
-# Examples of using the list method
-print("\nListing embed documents (leaf nodes only):")
-embed_docs = list(docstore.list(state="embed"))
-for doc in embed_docs:
-    print(f"ID: {doc.id}, State: {doc.state}, Children: {len(doc.children)}")
+# Process all documents through the entire pipeline
+final_docs = await async_docstore.finish(sample_docs)
 
-# List all documents in 'download' state (including non-leaf nodes)
-print("\nListing download documents (including non-leaf nodes):")
-download_docs = list(docstore.list(state="download", leaf=False))
-for doc in download_docs:
-    print(f"ID: {doc.id}, State: {doc.state}, Children: {len(doc.children)}")
-
-# List documents with metadata filtering
-print("\nListing documents with metadata filtering:")
-filtered_docs = list(docstore.list(state="chunk", total_chunks=2))
-for doc in filtered_docs:
-    print(f"ID: {doc.id}, State: {doc.state}, Chunk index: {doc.metadata.get('chunk_index')}")
-```
+# Stream content from a large document
+async for content_chunk in async_docstore.stream_content(doc_id, chunk_size=200):
+    # Process each chunk
+    pass

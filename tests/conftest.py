@@ -11,7 +11,7 @@ import pytest
 from tests.fixtures import (
     document_state, document_states, mock_process_func, mock_process_func_with_children, 
     mock_process_func_with_error, transition, transitions, document_type, document, 
-    documents, document_with_children, sqlite_db_path, docstore, mock_httpx_client, 
+    documents, document_with_children, async_sqlite_db_path, async_docstore, mock_httpx_client, 
     mock_splitter, mock_vectorstore
 )
 

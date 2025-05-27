@@ -1,12 +1,15 @@
 import os
 import pytest
+import pytest_asyncio
 from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from sqlalchemy import create_engine
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 
 from docstate.document import Document, DocumentState, DocumentType, Transition
-from docstate.docstate import Base, DocStore, DocumentModel
+from docstate.database import Base, DocumentModel
+from docstate.docstate import Docstore
 
 
 @pytest.fixture
@@ -173,31 +176,28 @@ def document_with_children():
 
 
 @pytest.fixture
-def sqlite_db_path(request):
-    """Return a path to an in-memory SQLite database."""
-    # Use in-memory SQLite database for tests
-    db_path = "sqlite:///:memory:"
-    
-    yield db_path
-    
-    # No cleanup required for in-memory databases
+def async_sqlite_db_path():
+    """Return a path to an in-memory async SQLite database."""
+    # For async SQLite, we need to use sqlite+aiosqlite:/// format
+    return "sqlite+aiosqlite:///:memory:"
 
 
-@pytest.fixture
-def docstore(sqlite_db_path, document_type):
-    """Return a DocStore with SQLite database."""
-    # Ensure the database exists and tables are created
-    engine = create_engine(sqlite_db_path)
-    Base.metadata.create_all(engine)
+@pytest_asyncio.fixture
+async def async_docstore(async_sqlite_db_path, document_type):
+    """Return a Docstore with SQLite database."""
+    # Create Docstore instance
+    store = Docstore(
+        connection_string=async_sqlite_db_path, 
+        document_type=document_type
+    )
     
-    # Create DocStore instance
-    store = DocStore(connection_string=sqlite_db_path, document_type=document_type)
-
+    # Initialize the database
+    await store.initialize()
+    
     yield store
     
     # Clean up
-    Base.metadata.drop_all(engine)
-    engine.dispose()
+    await store.dispose()
 
 
 @pytest.fixture
