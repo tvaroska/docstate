@@ -161,12 +161,13 @@ async def main():
         transitions=transitions
     )
     
-    # Create Docstore with SQLite database
+    # Create Docstore with SQLite database and multiprocessing support
     async_docstore = Docstore(
         connection_string="sqlite:///rag_example.db",
         document_type=doc_type,
-        max_concurrency=5,  # Process up to 5 documents in parallel
-        echo=True  # Show SQL queries for demonstration
+        max_concurrency=5,      # Process up to 5 documents in parallel with asyncio
+        process_workers=4,      # Use 4 worker processes for CPU-intensive operations (embedding, chunking)
+        echo=True               # Show SQL queries for demonstration
     )
     
     # Initialize the database

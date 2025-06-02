@@ -16,7 +16,11 @@ from docstate.utils import (
     log_document_processing, 
     log_document_transition,
     async_timed,
-    gather_with_concurrency
+    gather_with_concurrency,
+    get_process_pool,
+    shutdown_process_pool,
+    run_in_process_pool,
+    process_document_in_worker
 )
 
 
@@ -42,6 +46,7 @@ class Docstore:
         document_type: Optional[DocumentType] = None,
         error_state: Optional[str] = None,
         max_concurrency: int = 10,
+        process_workers: Optional[int] = None,
         pool_size: int = 5,
         max_overflow: int = 10,
         pool_timeout: int = 30,
@@ -93,6 +98,14 @@ class Docstore:
         self.error_state = error_state if error_state is not None else self.ERROR_STATE
         self.max_concurrency = max_concurrency
         
+        # Initialize process pool if process_workers is set
+        self.process_workers = process_workers
+        if process_workers is not None:
+            # Initialize the process pool
+            self._process_pool = get_process_pool(max_workers=process_workers)
+        else:
+            self._process_pool = None
+            
         # Cache for final state names
         self._final_state_names: Optional[List[str]] = None
         
@@ -114,7 +127,12 @@ class Docstore:
         await self.dispose()
             
     async def dispose(self):
-        """Close all connections in the connection pool."""
+        """Close all connections in the connection pool and shutdown the process pool."""
+        # Shutdown process pool if it exists
+        if hasattr(self, "_process_pool") and self._process_pool is not None:
+            shutdown_process_pool()
+            
+        # Close database connections
         if hasattr(self, "engine"):
             await self.engine.dispose()
     
@@ -395,6 +413,10 @@ class Docstore:
         """
         Process a single document transition.
         
+        This implementation supports multiprocessing for CPU-intensive operations.
+        It will use process pools for operations like embedding and chunking if 
+        process_workers is set, otherwise it falls back to standard async processing.
+        
         Args:
             doc: The document to process
             session: SQLAlchemy async session to use for database operations
@@ -423,8 +445,43 @@ class Docstore:
         try:
             # Process the document
             start_time = datetime.now()
-            log_document_processing(doc_id=doc.id, process_function=transition.process_func.__name__, start_time=start_time)
-            processed_result = await transition.process_func(doc)
+            process_func_name = transition.process_func.__name__
+            log_document_processing(doc_id=doc.id, process_function=process_func_name, start_time=start_time)
+            
+            # Assume all tasks are CPU-intensive for simplicity
+            if self.process_workers is not None:
+                # Use multiprocessing for all operations when process_workers is set
+                log_document_operation(
+                    operation="multiprocessing", 
+                    doc_id=doc.id, 
+                    details=f"Using process pool for {transition.process_func.__name__}"
+                )
+                
+                # Print debug information
+                print(f"MULTIPROCESSING: Offloading {transition.process_func.__name__} to worker process")
+                
+                # Convert document to dict for serialization across processes
+                doc_dict = doc.model_dump()
+                
+                # Run the process in a worker process
+                result_dict = await run_in_process_pool(
+                    process_document_in_worker, 
+                    doc_dict, 
+                    process_func_name
+                )
+                
+                # Check if result_dict contains an error
+                if isinstance(result_dict, dict) and "error" in result_dict:
+                    raise RuntimeError(f"{result_dict['error_type']}: {result_dict['error']}")
+                
+                # Convert result back to Document(s)
+                if isinstance(result_dict, list):
+                    processed_result = [Document.model_validate(item) for item in result_dict]
+                else:
+                    processed_result = Document.model_validate(result_dict)
+            else:
+                # For I/O-bound operations or if multiprocessing is disabled, use regular async
+                processed_result = await transition.process_func(doc)
             
             # Collect all results in a list
             results_to_add = []

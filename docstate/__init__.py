@@ -7,7 +7,7 @@ from docstate.document import Document, DocumentState, DocumentType, Transition
 from docstate.docstate import Docstore, Base
 
 # Version of the package
-__version__ = "0.0.2"
+__version__ = "0.0.3"
 
 # Provide easy access to key components
 __all__ = [

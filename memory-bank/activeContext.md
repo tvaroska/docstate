@@ -1,7 +1,7 @@
 # Active Context: Document Processing Pipeline
 
 ## Current Focus
-- Implementing streaming capabilities for large document handling
+- Implementing multiprocessing for CPU-intensive operations
 - Optimizing database queries for better performance with large datasets
 - Enhancing concurrency controls for parallel processing
 - Implementing connection pooling optimizations
@@ -10,6 +10,11 @@
 - Developing monitoring tools for pipeline execution
 
 ## Recent Changes
+- Implemented multiprocessing for CPU-intensive operations (embedding, chunking)
+- Added process pool management with configurable worker count
+- Added worker function serialization for cross-process communication
+- Modified document processing to intelligently select parallel processing strategy
+- Updated RAG example to demonstrate multiprocessing usage
 - Renamed main class from DocStore to AsyncDocStore to reflect its fully asynchronous nature
 - Implemented Document, DocumentState, DocumentType, and Transition classes with performance optimizations
 - Developed AsyncDocStore with SQLAlchemy async extensions for document persistence

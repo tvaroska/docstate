@@ -22,13 +22,14 @@ flowchart TD
 1. **State Machine Pattern**: Documents progress through well-defined states (link → download → chunk → embed) with explicit transitions between states. Final states are identified as those with no outgoing transitions.
 2. **Repository Pattern**: The AsyncDocStore acts as a repository for Document objects, providing CRUD operations and specialized queries.
 3. **Fully Asynchronous Processing**: All document processing functions are implemented as async functions for improved performance and scalability.
-4. **Parent-Child Relationships**: Documents maintain relationships to track lineage, especially important for chunking where one document becomes many.
-5. **SQLAlchemy ORM with Async Support**: Persistence layer uses SQLAlchemy with async extensions for database interactions.
-6. **Immutable State Transitions**: Each state transition creates new document(s) rather than modifying existing ones, preserving processing history.
-7. **Connection Pooling**: Optimized database connection management with configurable pool settings.
-8. **Concurrency Control**: Built-in limits on concurrent processing to prevent resource exhaustion.
-9. **Streaming Support**: Large document content can be streamed in chunks to handle documents of any size efficiently.
-10. **Optimized Query Patterns**: Database indexes and query optimizations for common access patterns.
+4. **Multiprocessing for CPU-Intensive Operations**: CPU-bound operations (like embedding and chunking) use separate processes to bypass the GIL and utilize multiple CPU cores.
+5. **Parent-Child Relationships**: Documents maintain relationships to track lineage, especially important for chunking where one document becomes many.
+6. **SQLAlchemy ORM with Async Support**: Persistence layer uses SQLAlchemy with async extensions for database interactions.
+7. **Immutable State Transitions**: Each state transition creates new document(s) rather than modifying existing ones, preserving processing history.
+8. **Connection Pooling**: Optimized database connection management with configurable pool settings.
+9. **Concurrency Control**: Built-in limits on concurrent processing to prevent resource exhaustion.
+10. **Streaming Support**: Large document content can be streamed in chunks to handle documents of any size efficiently.
+11. **Optimized Query Patterns**: Database indexes and query optimizations for common access patterns.
 
 ## Design Patterns in Use
 1. **State Pattern**: DocumentState represents different states a Document can be in, with state-specific behavior encapsulated in transition functions.

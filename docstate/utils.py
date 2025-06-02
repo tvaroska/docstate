@@ -2,9 +2,12 @@ import logging
 import sys
 import asyncio
 import time
+import os
+import multiprocessing
+from concurrent.futures import ProcessPoolExecutor
+from functools import wraps, partial
 from datetime import datetime
-from functools import wraps
-from typing import Any, Callable, Optional, TypeVar, cast
+from typing import Any, Callable, Optional, TypeVar, Dict, cast
 
 # Create logger for the docstate module
 docstate_logger = logging.getLogger('docstate')
@@ -238,3 +241,133 @@ async def gather_with_concurrency(n, *tasks):
             return await task
     
     return await asyncio.gather(*(sem_task(task) for task in tasks))
+
+# Multiprocessing utilities
+
+# Global process pool for reuse
+_process_pool = None
+
+def get_process_pool(max_workers=None):
+    """
+    Get or create a process pool executor with the specified number of workers.
+    
+    Args:
+        max_workers: Maximum number of worker processes. Defaults to CPU count.
+        
+    Returns:
+        A ProcessPoolExecutor instance.
+    """
+    global _process_pool
+    if _process_pool is None:
+        # Default to CPU count if max_workers not specified
+        if max_workers is None:
+            max_workers = os.cpu_count()
+        _process_pool = ProcessPoolExecutor(max_workers=max_workers)
+    return _process_pool
+
+def shutdown_process_pool():
+    """Shutdown the global process pool if it exists."""
+    global _process_pool
+    if _process_pool is not None:
+        _process_pool.shutdown()
+        _process_pool = None
+
+async def run_in_process_pool(func, *args, **kwargs):
+    """
+    Run a CPU-bound function in a process pool executor.
+    
+    This function is used to offload CPU-intensive operations to separate processes,
+    allowing them to bypass the GIL and utilize multiple CPU cores.
+    
+    Args:
+        func: The function to run in the process pool.
+        *args: Positional arguments to pass to the function.
+        **kwargs: Keyword arguments to pass to the function.
+        
+    Returns:
+        The result of the function call.
+    """
+    loop = asyncio.get_running_loop()
+    pool = get_process_pool()
+    fn = partial(func, *args, **kwargs)
+    return await loop.run_in_executor(pool, fn)
+
+def process_document_in_worker(doc_dict, process_func_name):
+    """
+    Process a document in a worker process.
+    
+    This function is designed to be called by run_in_process_pool to execute
+    CPU-intensive document processing functions in separate processes.
+    
+    Args:
+        doc_dict: Dictionary representation of a Document object.
+        process_func_name: Name of the processing function to call.
+        
+    Returns:
+        The result of the processing function, either a Document or list of Documents
+        (converted to dict format for cross-process communication).
+    """
+    try:
+        # Dynamic import to ensure module is loaded in the worker process
+        from docstate.document import Document
+        import sys
+        import importlib
+        
+        # Import processing functions dynamically
+        process_funcs = {}
+        
+        # Find the module containing our target function by walking through all modules
+        target_function = None
+        function_module = None
+        
+        # First check explicitly known modules
+        known_modules = [
+            "examples.rag",
+            "examples.benchmark",
+            "docstate.processing"
+        ]
+        
+        for module_name in known_modules:
+            try:
+                module = importlib.import_module(module_name)
+                if hasattr(module, process_func_name):
+                    target_function = getattr(module, process_func_name)
+                    function_module = module_name
+                    break
+            except ImportError:
+                continue
+        
+        # If we didn't find it in known modules, look at all loaded modules
+        if target_function is None:
+            for name, module in sys.modules.items():
+                if hasattr(module, process_func_name):
+                    try:
+                        target_function = getattr(module, process_func_name)
+                        function_module = name
+                        break
+                    except (AttributeError, ImportError):
+                        continue
+        
+        # Check if we found the function
+        if target_function is None:
+            raise ValueError(f"Could not find function '{process_func_name}' in any module")
+            
+        # Log the discovered function
+        print(f"Worker process found function '{process_func_name}' in module '{function_module}'")
+        
+        # Set the process function to the one we found
+        process_func = target_function
+        
+        # Convert dict back to Document
+        doc = Document.model_validate(doc_dict)
+        
+        # Use asyncio.run to handle async functions in the worker
+        result = asyncio.run(process_func(doc))
+        
+        # Convert result to dict for returning
+        if isinstance(result, list):
+            return [d.model_dump() for d in result]
+        return result.model_dump()
+    except Exception as e:
+        # Return error information
+        return {"error": str(e), "error_type": type(e).__name__}
